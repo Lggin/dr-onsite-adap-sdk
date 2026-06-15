@@ -1,0 +1,13 @@
+pyrealsense2==2.57.7.10387 ; sys_platform != "never"  # RealSense backend
+# Orbbec backend (Femto Bolt 등). PyPI 휠이 없으면 https://github.com/orbbec/pyorbbecsdk 에서 빌드.
+pyorbbecsdk
+torch==2.4.1
+rfdetr==1.6.3
+open3d==0.18.0
+opencv-python==4.12.0.88
+numpy==2.2.6
+Pillow==12.2.0
+plotly>=5.0
+# SAM 라벨링용 (lee4 안에서 't' 키로 active learning 데이터 생성).
+# https://github.com/facebookresearch/segment-anything
+segment-anything
