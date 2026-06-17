@@ -38,6 +38,19 @@ pip install -e ".[label,train,orbbec]"     # RealSense 카메라면 [orbbec] 대
 카메라 SDK는 선택 설치입니다(쓰는 기종만). `pyorbbecsdk` 는 PyPI 휠이 없을 수 있는데,
 그럴 땐 <https://github.com/orbbec/pyorbbecsdk> 에서 빌드하세요.
 
+### Jetson(Thor 등 엣지) 설치 — 주의
+JetPack 환경은 **그 환경의 torch(예: 2.12+cuXX)를 그대로 써야** 합니다. 그래서 SDK는
+의존성을 건드리지 않게 `--no-deps` 로 설치하고, 학습용 패키지는 따로 설치하세요:
+
+```bash
+pip install -e . --no-deps                       # SDK 본체 (torch 안 건드림)
+pip install peft pytorch-lightning pycocotools faster-coco-eval   # 학습용
+```
+
+`pycocotools`/`faster-coco-eval` 는 rfdetr 의 COCO 데이터 로더와 mAP 평가에 필요합니다
+(추론만 할 거면 불필요). 검증 결과 Thor(aarch64, CUDA 13)에서 LoRA 학습 + merge 가
+정상 동작합니다.
+
 ---
 
 ## 설정 (환경변수)

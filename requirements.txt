@@ -14,6 +14,8 @@ segment-anything
 # Training pipeline (LoRA fine-tune + merge).
 peft
 pytorch-lightning
+pycocotools         # rfdetr COCO dataset loader
+faster-coco-eval    # torchmetrics mAP backend used by rfdetr's eval callback
 
 # 3D snapshot viewer dependency (browser-based; optional).
 # open3d==0.18.0   # not required — viz3d uses plotly to avoid the numpy 2.x ABI issue

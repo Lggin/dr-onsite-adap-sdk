@@ -22,8 +22,9 @@ dependencies = [
 [project.optional-dependencies]
 # Active-learning labeling (SAM) used by the live app's 't' key.
 label = ["segment-anything"]
-# Training pipeline (LoRA fine-tune + merge).
-train = ["peft", "pytorch-lightning"]
+# Training pipeline (LoRA fine-tune + merge). pycocotools / faster-coco-eval
+# are pulled in indirectly by rfdetr's COCO dataset loader + mAP metric.
+train = ["peft", "pytorch-lightning", "pycocotools", "faster-coco-eval"]
 # Camera backends — install whichever device you use. pyorbbecsdk often has
 # no PyPI wheel; build from https://github.com/orbbec/pyorbbecsdk if so.
 realsense = ["pyrealsense2"]
