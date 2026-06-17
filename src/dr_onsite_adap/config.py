@@ -1,4 +1,4 @@
-"""Central configuration for depal_al.
+"""Central configuration for dr_onsite_adap.
 
 All paths are resolved from environment variables with sensible relative
 defaults so nothing is hard-coded to a particular machine. Override per

@@ -179,7 +179,7 @@ def show_snapshot(detections, up_dir=None, max_pts_per_layer=20000):
     scene_eye = dict(x=1.4, y=-1.4, z=1.4)
 
     fig.update_layout(
-        title="depal_al — 3D snapshot (world frame; up_dir → +Z)",
+        title="dr_onsite_adap — 3D snapshot (world frame; up_dir → +Z)",
         legend=dict(orientation="h", yanchor="top", y=-0.02, x=0),
         scene=dict(
             xaxis_title="X (m)",

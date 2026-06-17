@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "depal-al"
+name = "dr-onsite-adap"
 version = "0.1.0"
 description = "Depalletizing vision: RGB-D top-face pick-pose detection + active-learning training loop"
 readme = "README.md"
@@ -31,15 +31,15 @@ orbbec = ["pyorbbecsdk"]
 
 [project.scripts]
 # Runtime
-depal-run = "depal_al.runtime.app:main"
+depal-run = "dr_onsite_adap.runtime.app:main"
 # Pipeline
-depal-ingest = "depal_al.pipeline.ingest:main"
-depal-replay = "depal_al.pipeline.replay:main"
-depal-train = "depal_al.pipeline.train_lora:main"
-depal-merge = "depal_al.pipeline.merge:main"
-depal-eval = "depal_al.pipeline.eval:main"
-depal-dataset = "depal_al.pipeline.dataset:main"
-depal-round = "depal_al.pipeline.round:main"
+depal-ingest = "dr_onsite_adap.pipeline.ingest:main"
+depal-replay = "dr_onsite_adap.pipeline.replay:main"
+depal-train = "dr_onsite_adap.pipeline.train_lora:main"
+depal-merge = "dr_onsite_adap.pipeline.merge:main"
+depal-eval = "dr_onsite_adap.pipeline.eval:main"
+depal-dataset = "dr_onsite_adap.pipeline.dataset:main"
+depal-round = "dr_onsite_adap.pipeline.round:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

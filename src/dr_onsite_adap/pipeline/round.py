@@ -48,7 +48,7 @@ def pallet_ann_count(data_dir):
 
 
 def run(title, module):
-    cmd = [PY, "-m", f"depal_al.pipeline.{module}"]
+    cmd = [PY, "-m", f"dr_onsite_adap.pipeline.{module}"]
     print(f"\n{'='*60}\n▶ {title}\n  {' '.join(cmd)}\n{'='*60}", flush=True)
     t = time.time()
     r = subprocess.run(cmd)

@@ -99,7 +99,7 @@ def main():
 
     # 창을 미리 만들어 좌상단·앞으로 띄운다. WINDOW_NORMAL 이라 화면보다 크면
     # 드래그로 줄일 수 있고, TOPMOST 로 편집기 등 다른 창 뒤에 깔리지 않게 한다.
-    WIN = "depal_al — Top Face Center"
+    WIN = "dr_onsite_adap — Top Face Center"
     cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(WIN, roi[2] if roi else config.CAM_WIDTH,
                      roi[3] if roi else config.CAM_HEIGHT)

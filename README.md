@@ -8,11 +8,11 @@ hard-cases.
 
 Two halves:
 
-- **`depal_al.runtime`** — live RGB-D detection (RF-DETR segmentation),
+- **`dr_onsite_adap.runtime`** — live RGB-D detection (RF-DETR segmentation),
   top-face pick-pose estimation, occlusion filtering, SAM labeling, 2D HUD +
   3D snapshot.
-- **`depal_al.pipeline`** — the active-learning training loop: ingest labels →
-  build a replay-mixed dataset → LoRA fine-tune → merge → evaluate.
+- **`dr_onsite_adap.pipeline`** — the active-learning training loop: ingest
+  labels → build a replay-mixed dataset → LoRA fine-tune → merge → evaluate.
 
 ## How it works
 
@@ -58,7 +58,7 @@ are relative to `DEPAL_HOME` (current dir). Common ones:
 
 Pipeline paths: `DEPAL_BASE_WEIGHTS`, `DEPAL_TRAIN_DATA`, `DEPAL_LORA_SAFE`,
 `DEPAL_LORA_RUN`, `DEPAL_FINAL`, `DEPAL_PALLET_DATA`, `DEPAL_REPLAY_OUT`.
-See `src/depal_al/config.py` for the full list and defaults.
+See `src/dr_onsite_adap/config.py` for the full list and defaults.
 
 ## Runtime — live app
 
@@ -98,7 +98,7 @@ synthetic frames, or `--force` to override.
 ## Layout
 
 ```
-src/depal_al/
+src/dr_onsite_adap/
 ├── config.py            env-driven settings (paths, classes, geometry, hyperparams)
 ├── runtime/
 │   ├── app.py           live loop + keys
