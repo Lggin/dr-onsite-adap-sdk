@@ -69,6 +69,10 @@ ROI_PATH = os.environ.get("DEPAL_ROI_PATH", str(DEPAL_HOME / "roi.json"))
 # ---------------------------------------------------------------------------
 # "auto" probes for a connected RealSense or Orbbec device and picks one.
 CAMERA_BACKEND = os.environ.get("DEPAL_CAMERA_BACKEND", "auto")
+# 여러 대 연결됐을 때 특정 Orbbec 카메라 선택. 시리얼 권장(고정), index 는 연결순서로 바뀜.
+# 비워두면 device[0] 을 연다. (orbbec 백엔드가 이 환경변수를 직접 읽는다.)
+CAMERA_SERIAL = os.environ.get("DEPAL_CAMERA_SERIAL", "")
+CAMERA_INDEX = os.environ.get("DEPAL_CAMERA_INDEX", "")
 USE_IMU = os.environ.get("DEPAL_USE_IMU", "1") not in ("0", "false", "False")
 CAM_WIDTH = int(os.environ.get("DEPAL_CAM_WIDTH", "1280"))
 CAM_HEIGHT = int(os.environ.get("DEPAL_CAM_HEIGHT", "720"))

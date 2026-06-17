@@ -13,6 +13,8 @@ applies to COLOR only. Depth is picked from the device's native modes and
 the AlignFilter resamples it to color's resolution.
 """
 
+import os
+
 import cv2
 import numpy as np
 import pyorbbecsdk as obs
@@ -104,12 +106,47 @@ def _try_enable_accel(pipeline, cfg):
         return False, None
 
 
+def _open_pipeline(serial, index):
+    """serial(우선) 또는 index 로 특정 Orbbec 장치를 연다. 둘 다 비면 device[0].
+
+    여러 대 연결됐을 때 원하는 카메라를 고르기 위함. serial 은 장치마다 고정이라
+    안전하고, index 는 연결 순서/재부팅에 따라 바뀔 수 있다.
+    """
+    if not serial and index is None:
+        return obs.Pipeline()
+    dl = obs.Context().query_devices()
+    if serial:
+        try:
+            dev = dl.get_device_by_serial_number(serial)
+        except Exception:
+            dev = None
+        if dev is None:
+            avail = [dl.get_device_serial_number_by_index(i)
+                     for i in range(dl.get_count())]
+            raise RuntimeError(
+                f"DEPAL_CAMERA_SERIAL '{serial}' 카메라를 찾을 수 없습니다. "
+                f"연결된 시리얼: {avail}")
+        return obs.Pipeline(dev)
+    return obs.Pipeline(dl.get_device_by_index(int(index)))
+
+
 class FemtoBoltStream:
-    """Color+depth (aligned to color) + accel-derived world-up direction."""
+    """Color+depth (aligned to color) + accel-derived world-up direction.
+
+    device_serial / device_index 로 특정 카메라를 고를 수 있다(여러 대 연결 시).
+    둘 다 None 이면 환경변수 DEPAL_CAMERA_SERIAL / DEPAL_CAMERA_INDEX 를 보고,
+    그것도 없으면 device[0] 을 연다.
+    """
 
     def __init__(self, width, height, fps, use_imu=True,
-                 ema_alpha=0.1, frame_timeout_ms=1000):
-        self.pipeline = obs.Pipeline()
+                 ema_alpha=0.1, frame_timeout_ms=1000,
+                 device_serial=None, device_index=None):
+        if device_serial is None:
+            device_serial = os.environ.get("DEPAL_CAMERA_SERIAL") or None
+        if device_index is None:
+            _idx = os.environ.get("DEPAL_CAMERA_INDEX")
+            device_index = int(_idx) if _idx not in (None, "") else None
+        self.pipeline = _open_pipeline(device_serial, device_index)
         cfg = obs.Config()
 
         self._color_profile, self._color_decode = _enable_color(

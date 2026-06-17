@@ -67,6 +67,7 @@ pip install peft pytorch-lightning pycocotools faster-coco-eval   # 학습용
 | `DEPAL_SAM_WEIGHTS` | SAM 체크포인트 (라벨링용) |
 | `DEPAL_DATA_DIR` | 액티브러닝 COCO 데이터셋 폴더 |
 | `DEPAL_CAMERA_BACKEND` | `auto` / `realsense` / `orbbec` |
+| `DEPAL_CAMERA_SERIAL` | (Orbbec 여러 대 연결 시) 쓸 카메라 시리얼. 비우면 첫 장치(device[0]) |
 | `DEPAL_UP_DIR` | 카메라 기준 월드 수직 방향, 예: `-0.005,-0.428,-0.904` (IMU 없는 고정 마운트용) |
 | `DEPAL_Z_MAX` | 유효 depth 최대값(m). 높이 단 마운트면 키우세요 |
 
