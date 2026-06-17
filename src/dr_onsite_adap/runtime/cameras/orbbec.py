@@ -107,14 +107,18 @@ def _try_enable_accel(pipeline, cfg):
 
 
 def _open_pipeline(serial, index):
-    """serial(우선) 또는 index 로 특정 Orbbec 장치를 연다. 둘 다 비면 device[0].
+    """(pipeline, ctx) 를 돌려준다. serial(우선)/index 로 특정 Orbbec 장치를 열고,
+    둘 다 비면 device[0] 을 연다(ctx=None).
 
-    여러 대 연결됐을 때 원하는 카메라를 고르기 위함. serial 은 장치마다 고정이라
-    안전하고, index 는 연결 순서/재부팅에 따라 바뀔 수 있다.
+    ⚠️ Context 를 살려둬야 한다: `obs.Context().query_devices()` 처럼 Context 를 바로
+    버리면 DeviceList 의 내부 매니저 포인터가 NULL 이 돼 get_device_by_* 가
+    'NULL pointer ... deviceMgr' 로 실패한다(시리얼 목록 읽기는 캐시라 됨). 그래서
+    ctx 를 함께 반환해 호출측(FemtoBoltStream)이 장치 사용 동안 참조를 유지한다.
     """
     if not serial and index is None:
-        return obs.Pipeline()
-    dl = obs.Context().query_devices()
+        return obs.Pipeline(), None
+    ctx = obs.Context()
+    dl = ctx.query_devices()
     if serial:
         try:
             dev = dl.get_device_by_serial_number(serial)
@@ -126,8 +130,8 @@ def _open_pipeline(serial, index):
             raise RuntimeError(
                 f"DEPAL_CAMERA_SERIAL '{serial}' 카메라를 찾을 수 없습니다. "
                 f"연결된 시리얼: {avail}")
-        return obs.Pipeline(dev)
-    return obs.Pipeline(dl.get_device_by_index(int(index)))
+        return obs.Pipeline(dev), ctx
+    return obs.Pipeline(dl.get_device_by_index(int(index))), ctx
 
 
 class FemtoBoltStream:
@@ -146,7 +150,8 @@ class FemtoBoltStream:
         if device_index is None:
             _idx = os.environ.get("DEPAL_CAMERA_INDEX")
             device_index = int(_idx) if _idx not in (None, "") else None
-        self.pipeline = _open_pipeline(device_serial, device_index)
+        # _ctx 를 인스턴스에 보관해 장치 사용 동안 Context 가 살아있게 한다(위 주석 참고).
+        self.pipeline, self._ctx = _open_pipeline(device_serial, device_index)
         cfg = obs.Config()
 
         self._color_profile, self._color_decode = _enable_color(
