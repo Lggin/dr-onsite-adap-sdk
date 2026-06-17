@@ -87,6 +87,18 @@ DEPAL_WEIGHTS=/경로/model.pth DEPAL_DEVICE=cuda dr-onsite-run
 `t` SAM 라벨 · `q` 종료. 팔레트는 보이는데 픽 대상이 0개면 화면에
 **PALLET EMPTY — DONE** 배너가 뜹니다.
 
+### 데스크톱 GUI (권장, 처음 보는 사람용)
+키보드 대신 **버튼·카메라 드롭다운·검출 목록 표**가 있는 창입니다. PySide6 필요:
+
+```bash
+pip install "dr-onsite-adap[gui]"          # PySide6 설치 (Jetson은 휠 있음)
+DEPAL_WEIGHTS=/경로/model.pth DEPAL_DEVICE=cuda dr-onsite-gui
+```
+
+사이드바: 검출 · 3D 보기 · ROI 지정/해제(영상 위 드래그) · 라벨링(SAM) · 지우기.
+카메라가 여러 대면 드롭다운에서 시리얼로 선택. 모델 로딩·카메라·검출은 백그라운드라
+창이 멈추지 않습니다. (가벼운 키보드 버전은 위 `dr-onsite-run`.)
+
 ---
 
 ## 학습 — 액티브러닝 한 라운드

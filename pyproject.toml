@@ -29,10 +29,13 @@ train = ["peft", "pytorch-lightning", "pycocotools", "faster-coco-eval"]
 # no PyPI wheel; build from https://github.com/orbbec/pyorbbecsdk if so.
 realsense = ["pyrealsense2"]
 orbbec = ["pyorbbecsdk"]
+# Desktop GUI (dr-onsite-gui). PySide6 = official Qt-for-Python (Qt6).
+gui = ["PySide6"]
 
 [project.scripts]
 # Runtime
 dr-onsite-run = "dr_onsite_adap.runtime.app:main"
+dr-onsite-gui = "dr_onsite_adap.runtime.gui:main"
 # Pipeline
 dr-onsite-ingest = "dr_onsite_adap.pipeline.ingest:main"
 dr-onsite-replay = "dr_onsite_adap.pipeline.replay:main"

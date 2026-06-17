@@ -58,3 +58,15 @@ def load_camera_class(backend):
         from .orbbec import FemtoBoltStream
         return FemtoBoltStream
     raise ValueError(backend)
+
+
+def list_orbbec_serials():
+    """연결된 Orbbec 카메라 시리얼 목록(없거나 SDK 미설치면 빈 리스트).
+    GUI 카메라 선택 드롭다운용. 시리얼만 읽으므로 장치를 점유하지 않는다."""
+    try:
+        import pyorbbecsdk as obs
+        dl = obs.Context().query_devices()
+        return [dl.get_device_serial_number_by_index(i)
+                for i in range(dl.get_count())]
+    except Exception:
+        return []
