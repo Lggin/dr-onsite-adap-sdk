@@ -23,8 +23,9 @@ import numpy as np
 from .. import config
 from . import cameras
 from .detect import build_detections_3d, draw_state, run_detection
+from .geometry import estimate_up_dir
 from .viz3d import show_snapshot
-from .app import _apply_roi, _load_roi, _save_roi
+from .app import _apply_roi, _load_roi, _save_roi, _load_up, _save_up
 
 try:
     from PySide6 import QtCore, QtGui, QtWidgets
@@ -211,6 +212,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.state_intr = None
         self.state_up = None
         self.roi = _load_roi(config.ROI_PATH)
+        self.measured_up = _load_up(config.UP_PATH)   # 측정된 중력벡터(있으면 우선)
         self._fps = 0.0
         self._last_t = time.time()
         self._busy = False
@@ -250,8 +252,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_label.clicked.connect(self.do_label)
         self.btn_clear = QtWidgets.QPushButton("🧹  오버레이 지우기")
         self.btn_clear.clicked.connect(self._clear_overlay)
+        self.btn_up = QtWidgets.QPushButton("🧭  중력 재측정")
+        self.btn_up.setToolTip("바닥/팔레트 평면으로 up_dir(중력 벡터) 재측정 — 카메라 각도 바뀌었을 때")
+        self.btn_up.clicked.connect(self.do_measure_up)
         for b in (self.btn_detect, self.btn_3d, self.btn_roi, self.btn_roi_clear,
-                  self.btn_label, self.btn_clear):
+                  self.btn_label, self.btn_up, self.btn_clear):
             b.setMinimumHeight(40)
             b.setEnabled(False)
             side.addWidget(b)
@@ -295,7 +300,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.model = model
         self.labeler = labeler
         for b in (self.btn_detect, self.btn_3d, self.btn_roi, self.btn_roi_clear,
-                  self.btn_clear):
+                  self.btn_up, self.btn_clear):
             b.setEnabled(True)
         self.btn_label.setEnabled(labeler is not None)
         self._set_status("준비 완료 — '검출'을 누르세요")
@@ -336,7 +341,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # ── 프레임 수신/표시 ──
     def _on_frame(self, color, depth, intr, up):
         color_r, depth_r, intr_r = _apply_roi(color, depth, intr, self.roi)
-        up_dir = up if up is not None else config.UP_DIR_CAMERA_FRAME
+        up_dir = up if up is not None else (self.measured_up or config.UP_DIR_CAMERA_FRAME)
         self.last_pack = (color_r, depth_r, intr_r, up_dir)
         self.last_color_raw = color_r.copy()
 
@@ -411,6 +416,25 @@ class MainWindow(QtWidgets.QMainWindow):
             show_snapshot(build_detections_3d(self.state), up_dir=self.state_up)
         except Exception as e:  # noqa: BLE001
             self._set_status(f"⚠ 3D 보기 실패: {e}")
+
+    # ── 중력 벡터(up_dir) 재측정 ──
+    def do_measure_up(self):
+        if self.last_pack is None:
+            self._set_status("프레임이 아직 없습니다")
+            return
+        _, depth, intr, _ = self.last_pack
+        up = estimate_up_dir(depth, intr, config)
+        if up is None:
+            self._set_status("⚠ 중력 재측정 실패 — 바닥/팔레트 평면이 충분히 보이게 한 뒤 다시")
+            return
+        import math
+        tilt = math.degrees(math.acos(max(-1.0, min(1.0, -up[2]))))
+        self.measured_up = up
+        _save_up(config.UP_PATH, up)
+        self.state = None     # up 이 바뀌었으니 재검출 필요
+        self._set_status(
+            f"중력 재측정 완료: ({up[0]:+.3f}, {up[1]:+.3f}, {up[2]:+.3f}) · "
+            f"기울기 {tilt:.1f}° · 저장됨(다음 실행에도 적용)")
 
     # ── ROI ──
     def _on_roi_button(self, checked):

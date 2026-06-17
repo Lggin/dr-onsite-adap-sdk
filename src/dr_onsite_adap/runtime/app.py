@@ -61,6 +61,26 @@ def _save_roi(path, roi):
                       f, indent=2)
 
 
+def _load_up(path):
+    """up.json -> (x,y,z) 단위벡터 또는 None. GUI '중력 재측정'이 쓴 값."""
+    try:
+        with open(path) as f:
+            u = json.load(f)
+        v = (float(u["x"]), float(u["y"]), float(u["z"]))
+        return v if abs(v[0]) + abs(v[1]) + abs(v[2]) > 1e-6 else None
+    except Exception:
+        return None
+
+
+def _save_up(path, vec):
+    with open(path, "w") as f:
+        if vec is None:
+            json.dump({}, f)
+        else:
+            json.dump({"x": float(vec[0]), "y": float(vec[1]), "z": float(vec[2])},
+                      f, indent=2)
+
+
 def main():
     if not os.path.isfile(config.WEIGHTS_PATH):
         sys.exit(
@@ -91,6 +111,10 @@ def main():
     # 다음 실행에도 유지. 'r' 로 다시 잡거나(드래그) ESC 로 해제(전체 프레임).
     roi = _load_roi(config.ROI_PATH)
     print(f"ROI: {roi if roi else '없음(전체 프레임)'}  ('r' 로 설정/해제)")
+    # 측정된 up_dir(중력 벡터) 있으면 우선 사용(GUI '중력 재측정'이 저장). IMU>측정값>config.
+    measured_up = _load_up(config.UP_PATH)
+    if measured_up is not None:
+        print(f"up_dir(측정값): {tuple(round(v, 3) for v in measured_up)}")
     if camera.imu_enabled:
         print(f"IMU: 사용 (가속도계 @ {camera.accel_fps} Hz)")
     else:
@@ -126,7 +150,8 @@ def main():
             color_full, depth_full, intr_full, imu_up = frame_pack
             # ROI 크롭 적용 — 이후 검출/표시/라벨저장 모두 이 크롭 기준으로 통일.
             color, depth_m, intr = _apply_roi(color_full, depth_full, intr_full, roi)
-            up_dir = imu_up if imu_up is not None else config.UP_DIR_CAMERA_FRAME
+            up_dir = (imu_up if imu_up is not None
+                      else (measured_up or config.UP_DIR_CAMERA_FRAME))
             h_img, w_img = color.shape[:2]
             color_raw = color.copy()  # untouched (ROI) frame for SAM labeling
 

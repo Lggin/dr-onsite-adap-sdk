@@ -95,7 +95,12 @@ pip install "dr-onsite-adap[gui]"          # PySide6 설치 (Jetson은 휠 있�
 DEPAL_WEIGHTS=/경로/model.pth DEPAL_DEVICE=cuda dr-onsite-gui
 ```
 
-사이드바: 검출 · 3D 보기 · ROI 지정/해제(영상 위 드래그) · 라벨링(SAM) · 지우기.
+사이드바: 검출 · 3D 보기 · ROI 지정/해제(영상 위 드래그) · 라벨링(SAM) · 중력 재측정 · 지우기.
+
+> **중력 재측정(🧭)**: 카메라 마운트 각도가 바뀌면 윗면 추정에 쓰는 `up_dir`(월드 수직)
+> 이 틀어집니다. 이 버튼은 현재 depth 의 **지배 수평면(바닥/팔레트) 법선**으로 up_dir 을
+> 다시 측정해 `up.json`(`DEPAL_UP_PATH`)에 저장합니다 — IMU 없이, 다음 실행에도 자동 적용.
+> 우선순위: IMU > 측정값(up.json) > `DEPAL_UP_DIR`.
 카메라가 여러 대면 드롭다운에서 시리얼로 선택. 모델 로딩·카메라·검출은 백그라운드라
 창이 멈추지 않습니다. (가벼운 키보드 버전은 위 `dr-onsite-run`.)
 

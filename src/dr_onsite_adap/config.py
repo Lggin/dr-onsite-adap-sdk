@@ -63,6 +63,9 @@ ACTIVE_DATA_DIR = os.environ.get("DEPAL_ACTIVE_DATA_DIR", str(DATA_DIR))
 
 # ROI crop coords saved here ('r' in the live app). Empty file = full frame.
 ROI_PATH = os.environ.get("DEPAL_ROI_PATH", str(DEPAL_HOME / "roi.json"))
+# 측정한 up_dir(중력 벡터)을 저장하는 파일. GUI '중력 재측정'이 여기 쓰고, 다음 실행에
+# 자동 적용된다. IMU/UP_DIR_CAMERA_FRAME 보다 우선(있으면). 카메라 각도 바뀌면 재측정.
+UP_PATH = os.environ.get("DEPAL_UP_PATH", str(DEPAL_HOME / "up.json"))
 
 # ---------------------------------------------------------------------------
 # CAMERA

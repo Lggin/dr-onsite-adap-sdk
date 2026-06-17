@@ -164,3 +164,54 @@ def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
         "n_top": int(near_top.sum()),
         "n_inliers": int(near_top.sum()),
     }, None
+
+
+def estimate_up_dir(depth_m, intrinsics, cfg, iters=300, thresh=0.012,
+                    subsample=8000, seed=0):
+    """현재 depth 프레임에서 **지배 수평면(바닥/팔레트 등)** 의 법선을 RANSAC 으로 찾아
+    카메라 프레임 기준 '월드 위(up)' 단위벡터를 추정한다.
+
+    고정 마운트에서 카메라 기울기가 바뀌면 up_dir 도 바뀌는데, 이 함수로 한 번
+    다시 측정해 상수로 쓰면 IMU 없이도 정확하다. 반환 벡터는 카메라 쪽(=위)을 향하도록
+    z 성분이 음수가 되게 정렬한다(오버헤드 카메라 관례, 예: (-0.005,-0.428,-0.904)).
+
+    실패 시 None (유효 depth 부족 등).
+    """
+    fx, fy, cx, cy = intrinsics
+    ys, xs = np.where((depth_m > cfg.Z_MIN) & (depth_m < cfg.Z_MAX))
+    if len(xs) < 500:
+        return None
+    rng = np.random.default_rng(seed)
+    if len(xs) > subsample:
+        idx = rng.choice(len(xs), subsample, replace=False)
+        xs, ys = xs[idx], ys[idx]
+    z = depth_m[ys, xs].astype(np.float64)
+    X = (xs - cx) * z / fx
+    Y = (ys - cy) * z / fy
+    P = np.stack([X, Y, z], axis=1)
+
+    best_inl = 0
+    best_mask = None
+    for _ in range(iters):
+        s = P[rng.choice(len(P), 3, replace=False)]
+        n = np.cross(s[1] - s[0], s[2] - s[0])
+        nn = np.linalg.norm(n)
+        if nn < 1e-9:
+            continue
+        n = n / nn
+        dist = np.abs((P - s[0]) @ n)
+        inl = int((dist < thresh).sum())
+        if inl > best_inl:
+            best_inl, best_mask = inl, dist < thresh
+    if best_mask is None or best_inl < 200:
+        return None
+
+    # inlier 들로 법선 정밀화(PCA: 최소분산 방향 = 평면 법선)
+    Q = P[best_mask]
+    c = Q.mean(axis=0)
+    _, _, Vt = np.linalg.svd(Q - c, full_matrices=False)
+    n = Vt[-1]
+    if n[2] > 0:                       # 위(카메라 쪽)를 향하도록 z<0 로
+        n = -n
+    n = n / np.linalg.norm(n)
+    return tuple(float(v) for v in n)
