@@ -176,6 +176,13 @@ class FemtoBoltStream:
         self._up_ema = None
         self._ema_alpha = ema_alpha
         self._timeout = frame_timeout_ms
+        # 네트워크 카메라는 color/depth 가 서로 다른 프레임셋으로 따로 도착할 수 있다
+        # (특히 다른 클라이언트와 동시 접속 시). 한 프레임셋에 둘 다 오기만 기다리면
+        # 2~3fps 로 굶는다. 그래서 마지막 color/마지막(정렬된) depth 를 각각 캐싱해
+        # 둘 다 갖춰지면 내보낸다 → 부하 중에도 ~색상 fps. 고정 마운트라 depth↔color
+        # 기하 정렬은 상수이므로 약간 다른 시점의 depth 를 현재 color 와 짝지어도 정확.
+        self._last_color = None
+        self._last_depth_m = None
 
     def _accel_from_frames(self, frames):
         """Pull (x,y,z) m/s² out of whatever accel-frame API this sdk uses."""
@@ -233,42 +240,45 @@ class FemtoBoltStream:
 
     def read(self):
         frames = self.pipeline.wait_for_frames(self._timeout)
-        if frames is None:
-            return None
+        if frames is not None:
+            # IMU lives on the unaligned frameset (AlignFilter only touches video).
+            if self.imu_enabled:
+                self._update_up(frames)
 
-        # IMU lives on the unaligned frameset (AlignFilter only touches video).
-        if self.imu_enabled:
-            self._update_up(frames)
+            # color: 원본 프레임셋에서 바로(정렬과 무관, color 도착할 때마다 갱신=빠름).
+            color_frame = frames.get_color_frame()
+            if color_frame is not None:
+                col = self._decode_color(color_frame)
+                if col is not None:
+                    self._last_color = col
 
-        aligned = self.align_filter.process(frames)
-        if aligned is None:
-            return None
-        try:
-            aligned_set = aligned.as_frame_set()
-        except Exception:
-            aligned_set = aligned
-
-        color_frame = aligned_set.get_color_frame()
-        depth_frame = aligned_set.get_depth_frame()
-        if color_frame is None or depth_frame is None:
-            return None
-
-        color = self._decode_color(color_frame)
-        if color is None:
-            return None
-
-        dw = depth_frame.get_width()
-        dh = depth_frame.get_height()
-        depth_raw = np.frombuffer(depth_frame.get_data(), dtype=np.uint16).reshape((dh, dw))
-        try:
-            scale_mm = float(depth_frame.get_depth_scale())
-        except Exception:
-            scale_mm = 1.0
-        depth_m = (depth_raw.astype(np.float32) * scale_mm) * 0.001
+            # depth: color 로 정렬된 것만 사용(둘 다 든 프레임셋에서 align 이 동작).
+            # 고정 마운트라 약간 이전 시점의 정렬 depth 를 현재 color 와 써도 됨.
+            aligned = self.align_filter.process(frames)
+            aligned_set = None
+            if aligned is not None:
+                try:
+                    aligned_set = aligned.as_frame_set()
+                except Exception:
+                    aligned_set = aligned
+            if aligned_set is not None:
+                depth_frame = aligned_set.get_depth_frame()
+                if depth_frame is not None:
+                    dw = depth_frame.get_width()
+                    dh = depth_frame.get_height()
+                    depth_raw = np.frombuffer(
+                        depth_frame.get_data(), dtype=np.uint16).reshape((dh, dw))
+                    try:
+                        scale_mm = float(depth_frame.get_depth_scale())
+                    except Exception:
+                        scale_mm = 1.0
+                    self._last_depth_m = (depth_raw.astype(np.float32) * scale_mm) * 0.001
 
         up_dir = (None if self._up_ema is None
                   else tuple(float(x) for x in self._up_ema))
-        return color, depth_m, self.intrinsics, up_dir
+        if self._last_color is None or self._last_depth_m is None:
+            return None
+        return self._last_color, self._last_depth_m, self.intrinsics, up_dir
 
     def stop(self):
         try:
