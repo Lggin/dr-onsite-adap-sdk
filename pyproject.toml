@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "depal-al"
+version = "0.1.0"
+description = "Depalletizing vision: RGB-D top-face pick-pose detection + active-learning training loop"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+authors = [{ name = "Doosan Robotics" }]
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "Pillow",
+    "torch",
+    "rfdetr",
+    "plotly>=5.0",
+]
+
+[project.optional-dependencies]
+# Active-learning labeling (SAM) used by the live app's 't' key.
+label = ["segment-anything"]
+# Training pipeline (LoRA fine-tune + merge).
+train = ["peft", "pytorch-lightning"]
+# Camera backends — install whichever device you use. pyorbbecsdk often has
+# no PyPI wheel; build from https://github.com/orbbec/pyorbbecsdk if so.
+realsense = ["pyrealsense2"]
+orbbec = ["pyorbbecsdk"]
+
+[project.scripts]
+# Runtime
+depal-run = "depal_al.runtime.app:main"
+# Pipeline
+depal-ingest = "depal_al.pipeline.ingest:main"
+depal-replay = "depal_al.pipeline.replay:main"
+depal-train = "depal_al.pipeline.train_lora:main"
+depal-merge = "depal_al.pipeline.merge:main"
+depal-eval = "depal_al.pipeline.eval:main"
+depal-dataset = "depal_al.pipeline.dataset:main"
+depal-round = "depal_al.pipeline.round:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,36 @@
+# --- Model weights / large binaries (never commit) ---
+*.pth
+*.pt
+*.onnx
+*.ckpt
+*.npz
+*.safetensors
+
+# --- Datasets / data / run artifacts ---
+data/
+datasets/
+runs/
+output/
+eval_out/
+wandb/
+*.coco.json.bak_*
+roi.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+.venv/
+venv/
+env/
+
+# --- Tooling / OS ---
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+.DS_Store
+*.log

@@ -1,0 +1,25 @@
+# Core (runtime + most pipeline). Pin to taste; these mirror the versions the
+# field deployment was validated against.
+numpy==2.2.6
+opencv-python==4.12.0.88
+Pillow==12.2.0
+torch==2.4.1
+rfdetr==1.6.3
+plotly>=5.0
+
+# Active-learning labeling (SAM) — live app 't' key.
+# https://github.com/facebookresearch/segment-anything
+segment-anything
+
+# Training pipeline (LoRA fine-tune + merge).
+peft
+pytorch-lightning
+
+# 3D snapshot viewer dependency (browser-based; optional).
+# open3d==0.18.0   # not required — viz3d uses plotly to avoid the numpy 2.x ABI issue
+
+# --- Camera backends: install whichever device you use ---
+pyrealsense2==2.57.7.10387 ; sys_platform != "never"   # RealSense
+# Orbbec (Femto Bolt / Mega). If no PyPI wheel, build from:
+# https://github.com/orbbec/pyorbbecsdk
+pyorbbecsdk
