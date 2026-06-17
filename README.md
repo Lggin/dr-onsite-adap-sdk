@@ -155,7 +155,7 @@ src/dr_onsite_adap/
 │   ├── occlusion.py     자기 외곽선 기반 가려짐 필터
 │   ├── inference.py     RF-DETR 세그멘테이션 래퍼
 │   ├── viz.py viz3d.py  2D 표시 + 3D 스냅샷
-│   ├── labeler.py       내장 SAM 라벨링
+│   ├── labeler.py       내장 SAM 라벨링 (+ 'p' 폴리곤 수동 마스크: 겹친 박스용)
 │   └── cameras/         realsense + orbbec 백엔드, 자동 감지
 └── pipeline/
     ├── ingest.py        SAM 라벨 → COCO (덮어쓰지 않고 추가)

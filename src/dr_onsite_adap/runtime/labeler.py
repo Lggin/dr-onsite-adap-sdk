@@ -58,6 +58,42 @@ class SAMLabeler:
         self.saved_box = None
         self.input_points = []
         self.input_labels = []
+        self.poly_mode = False      # 'p' 로 토글. True 면 클릭=폴리곤 점.
+        self.poly_pts = []          # 수동 폴리곤 정점들
+
+    def _draw_poly(self):
+        """현재 폴리곤 정점/선을 미리보기로 그린다."""
+        self.temp_img = self.confirmed_img.copy()
+        if self.poly_pts:
+            pts = np.array(self.poly_pts, np.int32)
+            if len(self.poly_pts) >= 2:
+                cv2.polylines(self.temp_img, [pts], False, (0, 255, 255), 2)
+            for p in self.poly_pts:
+                cv2.circle(self.temp_img, tuple(p), 4, (0, 255, 0), -1)
+        cv2.imshow(self.WINDOW_NAME, self.temp_img)
+
+    def _finish_poly(self):
+        """모은 정점으로 폴리곤 마스크를 만들어 'SAM 마스크'와 동일한 확정 대기 상태로."""
+        if len(self.poly_pts) < 3:
+            print("  점 3개 이상 찍어야 합니다")
+            return
+        pts = np.array(self.poly_pts, np.int32)
+        h, w = self.confirmed_img.shape[:2]
+        m = np.zeros((h, w), np.uint8)
+        cv2.fillPoly(m, [pts], 1)
+        self.current_mask = m.astype(bool)
+        self.current_polygon = pts.reshape(-1, 1, 2)
+        xb, yb, wb, hb = cv2.boundingRect(pts)
+        self.current_bbox = [xb, yb, xb + wb, yb + hb]
+        self.poly_pts = []
+        # 미리보기
+        self.temp_img = self.confirmed_img.copy()
+        overlay = np.zeros_like(self.temp_img)
+        overlay[self.current_mask] = (0, 255, 255)
+        cv2.addWeighted(self.temp_img, 1.0, overlay, 0.5, 0, self.temp_img)
+        cv2.polylines(self.temp_img, [self.current_polygon], True, (0, 255, 255), 2)
+        cv2.imshow(self.WINDOW_NAME, self.temp_img)
+        print("  폴리곤 완성 — 클래스 숫자키로 확정하세요")
 
     def _update_sam(self):
         if self.saved_box is None:
@@ -100,6 +136,16 @@ class SAMLabeler:
         print(f"  mask updated (score {scores[0]:.2f})")
 
     def _on_mouse(self, event, x, y, flags, param):
+        # 폴리곤 모드: 좌클릭=정점 추가, 우클릭=마지막 점 취소. (SAM 마우스 동작 우회)
+        if self.poly_mode:
+            if event == cv2.EVENT_LBUTTONDOWN:
+                self.poly_pts.append([x, y])
+                self._draw_poly()
+            elif event == cv2.EVENT_RBUTTONDOWN:
+                if self.poly_pts:
+                    self.poly_pts.pop()
+                    self._draw_poly()
+            return
         if event == cv2.EVENT_RBUTTONDOWN:
             if self.saved_box is None:
                 print("  먼저 바운딩박스를 그리세요(좌클릭 드래그)")
@@ -148,7 +194,8 @@ class SAMLabeler:
         keyhint = ", ".join(f"{c}={self.classes[c][0]}"
                              for c in sorted(self.class_keys.values()))
         print("\n-- SAM 라벨링 --")
-        print("  드래그=박스, 좌클릭=포함점, 우클릭=제외점")
+        print("  [SAM] 드래그=박스, 좌클릭=포함점, 우클릭=제외점")
+        print("  [폴리곤] 'p'=모드 토글, 좌클릭=점 찍기, 우클릭=점 취소, 'f'=완성")
         print(f"  마스크 확정용 숫자키: {keyhint} (반복 가능)")
         print("  Enter=저장  /  ESC=취소\n")
 
@@ -167,7 +214,17 @@ class SAMLabeler:
         try:
             while True:
                 k = cv2.waitKey(1) & 0xFF
-                if self.current_bbox is not None and k in self.class_keys:
+                if k == ord("p"):
+                    self.poly_mode = not self.poly_mode
+                    self.poly_pts = []
+                    self.temp_img = self.confirmed_img.copy()
+                    cv2.imshow(self.WINDOW_NAME, self.temp_img)
+                    print("  폴리곤 모드:",
+                          "ON (좌클릭=점, f=완성, 우클릭=취소)" if self.poly_mode
+                          else "OFF (드래그=박스 SAM)")
+                elif k == ord("f") and self.poly_mode:
+                    self._finish_poly()
+                elif self.current_bbox is not None and k in self.class_keys:
                     cid = self.class_keys[k]
                     name, color = self.classes[cid]
                     self.annotations.append({

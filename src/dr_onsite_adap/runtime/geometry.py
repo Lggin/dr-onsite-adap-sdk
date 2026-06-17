@@ -79,6 +79,26 @@ def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
         return None, "few depth"
     h_top = float(np.median(heights[near_top]))
 
+    # ─── 4b. 윗면 영역만 추출 (옆면 제외) ───
+    # 높은 박스는 옆면이 마스크 실루엣에 포함된다. 전체 외곽선을 윗면 평면에 투영해
+    # minAreaRect 를 잡으면 옆면까지 들어가 사각형이 부풀고 중점이 치우친다.
+    # → 윗면 평면 높이 ±TOP_FACE_BAND_M(기본 3cm) 안의 픽셀(=실제 윗면)만의 외곽선을 쓴다.
+    # 윗면이 충분히 안 잡히면(드물게) 전체 외곽선으로 폴백.
+    band = getattr(cfg, "TOP_FACE_BAND_M", 0.03)
+    on_top = np.abs(heights - h_top) < band
+    src_contour = contour
+    if int(on_top.sum()) >= cfg.MIN_PLANE_INLIERS:
+        top_img = np.zeros(mask.shape[:2], dtype=np.uint8)
+        top_img[valid_ys[on_top], valid_xs[on_top]] = 255
+        top_img = cv2.morphologyEx(
+            top_img, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+        tcnts, _ = cv2.findContours(
+            top_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if tcnts:
+            tc = max(tcnts, key=cv2.contourArea)
+            if float(cv2.contourArea(tc)) >= 1.0:
+                src_contour = tc
+
     # Anchor = the actual 3D point closest in height to h_top
     anchor_idx = int(np.argmin(np.abs(heights - h_top)))
     P_top = valid_pts[anchor_idx]
@@ -93,7 +113,8 @@ def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
     e2 = np.cross(up_arr, e1)
 
     # ─── 5. Ray-project every contour pixel onto the plane ───
-    pts_img = contour.reshape(-1, 2).astype(np.float64)
+    # src_contour = 윗면 영역 외곽선(옆면 제외; 폴백 시 전체 외곽선)
+    pts_img = src_contour.reshape(-1, 2).astype(np.float64)
     dx = (pts_img[:, 0] - cx) / fx
     dy = (pts_img[:, 1] - cy) / fy
     denom = up_arr[0] * dx + up_arr[1] * dy + up_arr[2]

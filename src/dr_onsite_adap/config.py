@@ -98,6 +98,11 @@ TOP_DEPTH_PERCENTILE_HI = float(os.environ.get("DEPAL_TOP_PCT_HI", "15"))
 # Minimum valid depth pixels under a mask before we attempt a plane.
 MIN_PLANE_INLIERS = int(os.environ.get("DEPAL_MIN_PLANE_INLIERS", "80"))
 
+# Top-face band (meters): pixels within ±this of the fitted top plane are taken
+# as the top face, so the rectangle/center ignore visible side faces of tall
+# boxes. Larger = more tolerant (may include sides); smaller = stricter.
+TOP_FACE_BAND_M = float(os.environ.get("DEPAL_TOP_FACE_BAND_M", "0.03"))
+
 # World "up" in the camera frame. Used to pick the top slice and to express
 # the horizontal plane. Overridden by IMU at runtime when available; this is
 # the fallback for fixed mounts. Calibrate per mounting:
