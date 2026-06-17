@@ -31,15 +31,15 @@ orbbec = ["pyorbbecsdk"]
 
 [project.scripts]
 # Runtime
-depal-run = "dr_onsite_adap.runtime.app:main"
+dr-onsite-run = "dr_onsite_adap.runtime.app:main"
 # Pipeline
-depal-ingest = "dr_onsite_adap.pipeline.ingest:main"
-depal-replay = "dr_onsite_adap.pipeline.replay:main"
-depal-train = "dr_onsite_adap.pipeline.train_lora:main"
-depal-merge = "dr_onsite_adap.pipeline.merge:main"
-depal-eval = "dr_onsite_adap.pipeline.eval:main"
-depal-dataset = "dr_onsite_adap.pipeline.dataset:main"
-depal-round = "dr_onsite_adap.pipeline.round:main"
+dr-onsite-ingest = "dr_onsite_adap.pipeline.ingest:main"
+dr-onsite-replay = "dr_onsite_adap.pipeline.replay:main"
+dr-onsite-train = "dr_onsite_adap.pipeline.train_lora:main"
+dr-onsite-merge = "dr_onsite_adap.pipeline.merge:main"
+dr-onsite-eval = "dr_onsite_adap.pipeline.eval:main"
+dr-onsite-dataset = "dr_onsite_adap.pipeline.dataset:main"
+dr-onsite-round = "dr_onsite_adap.pipeline.round:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

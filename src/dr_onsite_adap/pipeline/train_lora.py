@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
-"""LoRA fine-tune of the segmentation detector for one active-learning round.
+"""[4단계 내부] 검출 모델을 LoRA로 미세조정합니다(보통 dr-onsite-round 가 자동 호출).
 
-stack+cumulative strategy: start from the previous production weights
-(BASE_WEIGHTS) and train LoRA adapters on the current corpus (the replay-mixed
-set is the recommended TRAIN_DATA_DIR). The class head is unchanged, so this
-is incremental — no architecture change.
+전략(stack+cumulative): 직전 운영 가중치(BASE_WEIGHTS)에서 시작해 현재 데이터셋
+(권장: 리플레이 혼합셋, TRAIN_DATA_DIR)으로 LoRA 어댑터를 학습합니다. 클래스 구조는
+그대로라 증분 학습입니다(아키텍처 변경 없음).
 
-It intercepts PyTorch-Lightning's fit() to (a) wrap the inner model in a PEFT
-LoRA model and (b) train only LoRA params, then loads the best checkpoint back
-into the PEFT model and saves the adapter.
+PyTorch-Lightning 의 fit() 을 가로채 (a) 내부 모델을 PEFT LoRA 로 감싸고 (b) LoRA
+파라미터만 학습한 뒤, best 체크포인트를 다시 불러와 어댑터를 저장합니다.
 
-Per round: bump BASE_WEIGHTS to the previous merged result and FINAL_WEIGHTS
-(in merge.py) to the next version. All paths come from config / env:
+라운드마다: BASE_WEIGHTS 를 직전 결과로, (merge.py 의) FINAL_WEIGHTS 를 다음 버전으로
+올리세요. 경로는 모두 환경변수로 지정합니다:
   DEPAL_BASE_WEIGHTS, DEPAL_TRAIN_DATA, DEPAL_LORA_SAFE, DEPAL_LORA_RUN
 
-Usage:  depal-train
+사용법:  dr-onsite-train   (보통은 dr-onsite-round 가 알아서 부릅니다)
 """
 import types
 from pathlib import Path
@@ -130,7 +128,7 @@ def main():
         project="Depal_Active_Learning",
         run="lora_round",
     )
-    print("🚀 done. Next: depal-merge to fuse the adapter into the base.")
+    print("🚀 완료. 다음: dr-onsite-merge 로 어댑터를 베이스에 합치세요.")
 
 
 if __name__ == "__main__":

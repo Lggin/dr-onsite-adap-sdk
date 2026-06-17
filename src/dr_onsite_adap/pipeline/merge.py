@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Fuse the LoRA adapter from a training round into the base weights,
-producing a single deployable .pth.
+"""[4단계 내부] LoRA 어댑터를 베이스 가중치에 합쳐 배포용 단일 .pth 를 만듭니다.
 
-⚠️ BASE_WEIGHTS must match the one train_lora.py used (the adapter is only
-valid on the feature distribution it was trained against).
+⚠️ BASE_WEIGHTS 는 train_lora.py 가 쓴 것과 반드시 같아야 합니다(어댑터는 학습 당시
+feature 분포에서만 유효).
 
-Per round: bump BASE_WEIGHTS to the previous round result and FINAL_WEIGHTS to
-the next version. Deploy by pointing DEPAL_WEIGHTS at the new file.
+라운드마다: BASE_WEIGHTS 를 직전 결과로, FINAL_WEIGHTS 를 다음 버전으로 올리세요.
+배포는 환경변수 DEPAL_WEIGHTS 를 새 파일로 지정하면 됩니다.
 
-Paths from config / env: DEPAL_BASE_WEIGHTS, DEPAL_LORA_SAFE, DEPAL_FINAL.
+경로는 환경변수로: DEPAL_BASE_WEIGHTS, DEPAL_LORA_SAFE, DEPAL_FINAL.
 
-Usage:  depal-merge
+사용법:  dr-onsite-merge   (보통은 dr-onsite-round 가 알아서 부릅니다)
 """
 import torch
 from rfdetr import RFDETRSegMedium

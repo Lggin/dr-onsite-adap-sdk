@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Append raw sam_hard triples (jpg + mask.png + json) produced by the live
-SAM labeler into the active-learning COCO dataset (train + valid), without
-destroying existing data — append only.
+"""[2단계] 라벨을 학습 데이터셋에 추가합니다.
 
-- Targets sam_hard_*.json at the dataset root that aren't already in train.
-- Adds each to BOTH train and valid (the existing convention: valid is not a
-  held-out split here, so LoRA train + any downstream consumer both see the
-  new crops).
-- category_id = the labeler's class_id (0=Box, 1=Tote, 2=Wrap, 3=Pallet).
-- Timestamped backup of train/valid COCO before writing.
+라이브 앱('t' 키)의 SAM 라벨러가 만든 sam_hard 파일 묶음(jpg + mask.png + json)을
+액티브러닝 COCO 데이터셋(train·valid)에 **기존 데이터를 지우지 않고 추가만** 합니다.
 
-Usage:  depal-ingest [--data-dir DIR] [--dry-run]
+- 데이터셋 폴더 안의 sam_hard_*.json 중 아직 train 에 없는 것만 대상으로 합니다.
+- train 과 valid **양쪽에 똑같이** 추가합니다(이 파이프라인의 valid 는 별도 검증셋이
+  아니라 학습이 새 크롭을 보게 하려는 용도입니다).
+- category_id 는 라벨러의 class_id 그대로(0=Box, 1=Tote, 2=Wrap, 3=Pallet).
+- 쓰기 전에 train/valid COCO 를 타임스탬프 백업합니다.
+
+사용법:
+  dr-onsite-ingest                 # 기본 데이터셋 폴더에 추가
+  dr-onsite-ingest --dry-run       # 무엇이 추가될지 미리보기(변경 없음)
+  dr-onsite-ingest --data-dir DIR  # 데이터셋 폴더 직접 지정
 """
 import argparse
 import datetime
@@ -31,10 +34,13 @@ def load(p):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data-dir", default=config.ACTIVE_DATA_DIR,
-                    help="active-learning dataset root (train/valid COCO + sam_hard triples)")
-    ap.add_argument("--dry-run", action="store_true")
+                    help="액티브러닝 데이터셋 폴더(train/valid COCO + sam_hard 파일). "
+                         "기본값은 환경변수 DEPAL_ACTIVE_DATA_DIR / DEPAL_DATA_DIR")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="실제로 추가하지 않고 대상만 출력")
     args = ap.parse_args()
     data_dir = args.data_dir
 
@@ -44,7 +50,7 @@ def main():
     valid = load(valid_p)
     existing = {im["file_name"] for im in train["images"]}
 
-    # sam_hard json at the root not yet in the COCO
+    # 폴더 안 sam_hard json 중 아직 COCO 에 없는 것
     todo = []
     for jp in sorted(glob.glob(os.path.join(data_dir, "sam_hard_*.json"))):
         if jp.endswith("_mask.png"):
@@ -55,29 +61,29 @@ def main():
             continue
         src = os.path.join(data_dir, jpg)
         if not os.path.isfile(src):
-            print(f"  ⚠️ jpg missing, skip: {jpg}")
+            print(f"  ⚠️ jpg 없음, 건너뜀: {jpg}")
             continue
         todo.append((jp, d, jpg, src))
 
     if not todo:
-        print("No new sam_hard triples (all already in COCO).")
+        print("추가할 새 sam_hard 라벨이 없습니다(모두 이미 들어있음).")
         return
 
-    print(f"To add: {len(todo)} images")
+    print(f"추가 대상: {len(todo)}장")
     cc = Counter()
     for jp, d, jpg, src in todo:
         c = Counter(a["class_id"] for a in d["annotations"])
         cc += c
-        print(f"  {jpg}  ann={len(d['annotations'])} {dict(c)}")
-    print(f"class totals: {dict(cc)}")
+        print(f"  {jpg}  라벨 {len(d['annotations'])}개 {dict(c)}")
+    print(f"클래스 합계: {dict(cc)}")
     if args.dry_run:
-        print("(--dry-run: no changes)")
+        print("(--dry-run: 변경 없음)")
         return
 
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     shutil.copy(train_p, train_p + f".bak_ingest_{ts}")
     shutil.copy(valid_p, valid_p + f".bak_ingest_{ts}")
-    print(f"backup: *.bak_ingest_{ts}")
+    print(f"백업 생성: *.bak_ingest_{ts}")
 
     def append_to(coco, split):
         nimg = max([im["id"] for im in coco["images"]] + [0])
@@ -115,8 +121,8 @@ def main():
         json.dump(train, f)
     with open(valid_p, "w") as f:
         json.dump(valid, f)
-    print(f"✅ train +{ti}img/{ta}ann (total {len(train['images'])}img), "
-          f"valid +{vi}img/{va}ann (total {len(valid['images'])}img)")
+    print(f"✅ train +{ti}장/{ta}라벨 (총 {len(train['images'])}장), "
+          f"valid +{vi}장/{va}라벨 (총 {len(valid['images'])}장)")
 
 
 if __name__ == "__main__":

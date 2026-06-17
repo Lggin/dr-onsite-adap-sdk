@@ -1,13 +1,12 @@
-"""Embedded SAM labeling for the live app.
+"""라이브 앱에 내장된 SAM 라벨링.
 
-Press 't' in the app to pause on the current frame and label it with SAM:
-drag = bounding box, left-click = positive point, right-click = negative
-point. After SAM produces a mask, hit a class digit to confirm the object's
-class (0=Box, 1=Tote, 2=Wrap, 3=Pallet). The valid digits are taken from
-config.CLASSES, so they track however many classes the deployment has.
-Multiple objects can be confirmed per frame.
-Enter saves (jpg + binary mask png + json) into the active-learning folder
-consumed by the training pipeline (`depal-ingest`); ESC cancels.
+앱에서 't' 를 누르면 현재 화면에서 멈춰 SAM 으로 라벨합니다:
+드래그=바운딩박스, 좌클릭=포함점(positive), 우클릭=제외점(negative).
+SAM 이 마스크를 만들면 클래스 숫자키를 눌러 확정합니다(0=Box, 1=Tote, 2=Wrap,
+3=Pallet). 유효한 숫자키는 config.CLASSES 에서 자동으로 가져오므로 배포 클래스 수에
+맞춰집니다. 한 화면에서 여러 객체를 확정할 수 있습니다.
+Enter 로 저장하면(jpg + 마스크 png + json) 학습 파이프라인(`dr-onsite-ingest`)이
+읽는 액티브러닝 폴더에 들어갑니다. ESC 는 취소입니다.
 """
 
 import datetime
@@ -103,7 +102,7 @@ class SAMLabeler:
     def _on_mouse(self, event, x, y, flags, param):
         if event == cv2.EVENT_RBUTTONDOWN:
             if self.saved_box is None:
-                print("  draw a bounding box first (left-drag)")
+                print("  먼저 바운딩박스를 그리세요(좌클릭 드래그)")
                 return
             self.input_points.append([x, y])
             self.input_labels.append(0)
@@ -121,7 +120,7 @@ class SAMLabeler:
             self.drawing = False
             if abs(self.ix - x) < 5 and abs(self.iy - y) < 5:
                 if self.saved_box is None:
-                    print("  draw a bounding box first (left-drag)")
+                    print("  먼저 바운딩박스를 그리세요(좌클릭 드래그)")
                     return
                 self.input_points.append([x, y])
                 self.input_labels.append(1)
@@ -131,7 +130,7 @@ class SAMLabeler:
                 x2, y2 = max(self.ix, x), max(self.iy, y)
                 if (x2 - x1) < 10 or (y2 - y1) < 10:
                     return
-                print("  new box → initial SAM mask")
+                print("  새 박스 → SAM 초기 마스크 생성")
                 self.saved_box = np.array([x1, y1, x2, y2])
                 self.input_points = []
                 self.input_labels = []
@@ -148,10 +147,10 @@ class SAMLabeler:
 
         keyhint = ", ".join(f"{c}={self.classes[c][0]}"
                              for c in sorted(self.class_keys.values()))
-        print("\n-- SAM labeling --")
-        print("  drag = box, left-click = positive point, right-click = negative")
-        print(f"  {keyhint} to confirm a mask (can repeat)")
-        print("  Enter = save  /  ESC = cancel\n")
+        print("\n-- SAM 라벨링 --")
+        print("  드래그=박스, 좌클릭=포함점, 우클릭=제외점")
+        print(f"  마스크 확정용 숫자키: {keyhint} (반복 가능)")
+        print("  Enter=저장  /  ESC=취소\n")
 
         self.predictor.set_image(rgb_frame)
         # AUTOSIZE 유지(창=이미지 1:1 → 마우스 좌표가 픽셀과 정확히 일치).
@@ -185,7 +184,7 @@ class SAMLabeler:
                                     self.confirmed_img)
                     cv2.polylines(self.confirmed_img, [self.current_polygon],
                                   True, color, 2)
-                    print(f"  + {name}  (total {len(self.annotations)})")
+                    print(f"  + {name}  (누적 {len(self.annotations)}개)")
                     self.current_mask = self.current_polygon = self.current_bbox = None
                     self.saved_box = None
                     self.input_points = []
@@ -195,7 +194,7 @@ class SAMLabeler:
                 elif k == 13:  # Enter
                     return self._save(bgr_frame)
                 elif k == 27:  # ESC
-                    print("  cancelled — nothing saved")
+                    print("  취소됨 — 저장 안 함")
                     return False
         finally:
             try:
@@ -205,7 +204,7 @@ class SAMLabeler:
 
     def _save(self, bgr_frame):
         if not self.annotations:
-            print("  no annotations to save")
+            print("  저장할 라벨이 없습니다")
             return False
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         img_file = f"sam_hard_{ts}.jpg"
@@ -219,5 +218,5 @@ class SAMLabeler:
                 "mask_file": mask_file,
                 "annotations": self.annotations,
             }, f, indent=4)
-        print(f"  saved {len(self.annotations)} objects → {self.save_dir}/{img_file}")
+        print(f"  {len(self.annotations)}개 객체 저장됨 → {self.save_dir}/{img_file}")
         return True

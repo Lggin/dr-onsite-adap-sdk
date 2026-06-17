@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Dataset setup helpers (one-off / occasional).
+"""[준비] 데이터셋 준비 도구 (처음 한 번 / 가끔만 사용).
 
-Subcommands:
-  build-pallet    Assemble a 4-class (+Pallet) training dataset: a real
-                  pallet-free base (symlinked) + pallet-labeled synthetic
-                  images (copied), with a Pallet category declared. This is
-                  the replay source consumed by `depal-replay`.
-  declare-pallet  Add the Pallet (id 3) category to an existing COCO dataset
-                  without touching annotations (reserves the slot for future
-                  real pallet labels). Idempotent; backs up first.
+하위 명령:
+  build-pallet    4클래스(+Pallet) 학습 데이터셋을 조립합니다. 팔레트 없는 실측
+                  베이스(심볼릭 링크) + 팔레트가 라벨된 합성 이미지(복사)를 합치고
+                  Pallet 카테고리를 선언합니다. dr-onsite-replay 의 리플레이 출처가
+                  되는 데이터셋입니다.
+  declare-pallet  기존 COCO 데이터셋에 Pallet(id 3) 카테고리만 선언합니다(라벨은
+                  건드리지 않음 — 나중에 들어올 실측 팔레트 라벨 자리 확보).
+                  여러 번 실행해도 안전하며, 먼저 백업합니다.
 
-Usage:
-  depal-dataset build-pallet --src-base DIR --synth DIR [DIR ...] --out DIR
-  depal-dataset declare-pallet [--data-dir DIR]
+사용법:
+  dr-onsite-dataset build-pallet --src-base DIR --synth DIR [DIR ...] --out DIR
+  dr-onsite-dataset declare-pallet [--data-dir DIR]
 """
 import argparse
 import collections
@@ -65,7 +65,7 @@ def _build_split(split, src_base, synth_dirs, out, exclude_prefix):
             "categories": cats, "images": [], "annotations": []}
     img_id = ann_id = 0
 
-    # base: pallet-free real images only (exclude legacy leaky synth), symlinked
+    # 베이스: 팔레트 없는 실측 이미지만(옛 합성 누수 제외), 심볼릭 링크
     base_imgs = [im for im in src["images"]
                  if not (exclude_prefix and im["file_name"].startswith(exclude_prefix))]
     base_ids = {im["id"] for im in base_imgs}
@@ -74,7 +74,7 @@ def _build_split(split, src_base, synth_dirs, out, exclude_prefix):
                                  prefix="", link=True, img_id=img_id, ann_id=ann_id)
     n_base = img_id
 
-    # inject pallet-labeled synthetic images (copied)
+    # 주입: 팔레트가 라벨된 합성 이미지(복사)
     for sdir in synth_dirs:
         sj = sdir / split / "_annotations.coco.json"
         if not sj.exists():
@@ -86,9 +86,9 @@ def _build_split(split, src_base, synth_dirs, out, exclude_prefix):
 
     (out / split / "_annotations.coco.json").write_text(json.dumps(coco))
     cc = collections.Counter(a["category_id"] for a in coco["annotations"])
-    print(f"[{split}] images {len(coco['images'])} (base {n_base} + synth "
-          f"{len(coco['images'])-n_base}) | anns {len(coco['annotations'])}")
-    print(f"   per-class: { {NAMES.get(k,k): v for k,v in sorted(cc.items())} }")
+    print(f"[{split}] 이미지 {len(coco['images'])}장 (베이스 {n_base} + 합성 "
+          f"{len(coco['images'])-n_base}) | 라벨 {len(coco['annotations'])}개")
+    print(f"   클래스별: { {NAMES.get(k,k): v for k,v in sorted(cc.items())} }")
 
 
 def cmd_build_pallet(args):
@@ -99,7 +99,7 @@ def cmd_build_pallet(args):
         shutil.rmtree(out)
     for split in ["train", "valid"]:
         _build_split(split, src_base, synth_dirs, out, args.exclude_prefix)
-    print(f"✅ assembled → {out}")
+    print(f"✅ 조립 완료 → {out}")
 
 
 # ---------------------------------------------------------------------------
@@ -112,14 +112,14 @@ def cmd_declare_pallet(args):
         d = json.loads(p.read_text())
         ids = {c["id"] for c in d.get("categories", [])}
         if 3 in ids:
-            print(f"[{split}] Pallet already declared — skip")
+            print(f"[{split}] Pallet 이미 선언됨 — 건너뜀")
             continue
         shutil.copy(p, p.parent / f"{p.name}.bak_{datetime.now():%Y%m%d_%H%M%S}")
         d["categories"].append(PALLET_CAT)
         p.write_text(json.dumps(d))
         cats = {c["id"]: c["name"] for c in d["categories"]}
-        print(f"[{split}] Pallet declared → categories={cats}")
-    print("done (annotations unchanged).")
+        print(f"[{split}] Pallet 선언 추가 → categories={cats}")
+    print("완료 (라벨 변경 없음).")
 
 
 def main():
@@ -127,20 +127,20 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    bp = sub.add_parser("build-pallet", help="assemble 4-class pallet dataset")
+    bp = sub.add_parser("build-pallet", help="4클래스 팔레트 데이터셋 조립")
     bp.add_argument("--src-base", required=True,
-                    help="base COCO dataset (real, pallet-free) to symlink")
+                    help="심볼릭 링크할 베이스 COCO 데이터셋(실측, 팔레트 없음)")
     bp.add_argument("--synth", nargs="+", required=True,
-                    help="pallet-labeled synthetic COCO dirs to inject")
+                    help="주입할 팔레트 라벨 합성 COCO 폴더들")
     bp.add_argument("--out", default=str(config.PALLET_DATA_DIR),
-                    help="output dataset dir")
+                    help="결과 데이터셋 폴더")
     bp.add_argument("--exclude-prefix", default="lee5synth",
-                    help="skip base images with this filename prefix")
+                    help="이 접두어로 시작하는 베이스 이미지는 제외")
     bp.set_defaults(func=cmd_build_pallet)
 
-    dp = sub.add_parser("declare-pallet", help="declare Pallet category in a dataset")
+    dp = sub.add_parser("declare-pallet", help="데이터셋에 Pallet 카테고리 선언")
     dp.add_argument("--data-dir", default=str(config.DATA_DIR),
-                    help="COCO dataset root (train/valid)")
+                    help="COCO 데이터셋 폴더(train/valid)")
     dp.set_defaults(func=cmd_declare_pallet)
 
     args = ap.parse_args()

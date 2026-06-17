@@ -1,13 +1,13 @@
-"""Live RGB-D app: detect pick targets, estimate each top-face pick pose,
-filter occlusions, and signal an empty pallet.
+"""[실행] 라이브 RGB-D 앱: 픽 대상을 검출하고 각 물체 윗면의 픽 좌표/자세를
+추정하며, 가려짐을 거르고, 빈 팔레트를 알려줍니다.
 
-Keys:
-  d  (re)run detection on the current frame
-  v  open a 3D snapshot of the last detection in the browser
-  c  clear the overlay
-  r  set/clear an ROI crop (drag = set, ESC = full frame)
-  t  SAM active-learning labeling on the current frame
-  q  quit
+키 안내:
+  d  현재 화면에서 검출(다시) 실행
+  v  마지막 검출 결과를 브라우저 3D로 보기
+  c  화면 오버레이 지우기
+  r  관심영역(ROI) 크롭 지정/해제 (드래그=지정, ESC=전체 화면)
+  t  현재 화면을 SAM으로 라벨링(액티브러닝 데이터 수집)
+  q  종료
 """
 import json
 import os
@@ -64,8 +64,8 @@ def _save_roi(path, roi):
 def main():
     if not os.path.isfile(config.WEIGHTS_PATH):
         sys.exit(
-            f"Weights not found: {config.WEIGHTS_PATH}\n"
-            f"Set DEPAL_WEIGHTS env var to the correct path on this machine."
+            f"가중치 파일을 찾을 수 없습니다: {config.WEIGHTS_PATH}\n"
+            f"환경변수 DEPAL_WEIGHTS 에 이 PC의 실제 가중치 경로를 지정하세요."
         )
     backend = resolve_backend(config.CAMERA_BACKEND)
     CameraStream = load_camera_class(backend)
@@ -76,7 +76,7 @@ def main():
             sam_type=config.SAM_TYPE, device=config.SAM_DEVICE,
         )
     except FileNotFoundError as e:
-        print(f"SAM disabled: {e}")
+        print(f"SAM 라벨링 비활성화: {e}")
         labeler = None
 
     camera = CameraStream(
@@ -84,18 +84,17 @@ def main():
         use_imu=config.USE_IMU,
     )
 
-    print("Press 'd' to (re)detect, 'v' for 3D snapshot, "
-          "'c' to clear overlay, 'q' to quit, 't' for SAM labeling, "
-          "'r' to set/clear ROI (crop).")
+    print("키: 'd' 검출(다시), 'v' 3D 보기, 'c' 오버레이 지우기, "
+          "'t' SAM 라벨링, 'r' 관심영역 지정/해제, 'q' 종료")
 
     # ROI(팔레트 영역): 검출/표시/라벨저장을 이 영역 크롭으로 한정. roi.json 에 저장돼
     # 다음 실행에도 유지. 'r' 로 다시 잡거나(드래그) ESC 로 해제(전체 프레임).
     roi = _load_roi(config.ROI_PATH)
     print(f"ROI: {roi if roi else '없음(전체 프레임)'}  ('r' 로 설정/해제)")
     if camera.imu_enabled:
-        print(f"IMU: enabled (accel @ {camera.accel_fps} Hz)")
+        print(f"IMU: 사용 (가속도계 @ {camera.accel_fps} Hz)")
     else:
-        print("IMU: disabled (using config fallback)")
+        print("IMU: 미사용 (config 의 고정 up_dir 사용)")
 
     # 창을 미리 만들어 좌상단·앞으로 띄운다. WINDOW_NORMAL 이라 화면보다 크면
     # 드래그로 줄일 수 있고, TOPMOST 로 편집기 등 다른 창 뒤에 깔리지 않게 한다.
@@ -164,11 +163,11 @@ def main():
                 age = t_now - detection_state["detect_time"]
                 inf_ms = detection_state["inference_time"] * 1000.0
                 status_text = (
-                    f"last detect: {age:4.1f}s ago (took {inf_ms:.0f}ms) "
-                    f"— 'd' refresh  'v' 3D  'c' clear"
+                    f"마지막 검출: {age:4.1f}초 전 ({inf_ms:.0f}ms 소요) "
+                    f"— 'd' 다시  'v' 3D  'c' 지우기"
                 )
             else:
-                status_text = "no detection — 'd' to detect"
+                status_text = "검출 없음 — 'd' 를 누르세요"
             draw_styled_text(
                 color, status_text,
                 (10, h_img - 32), (255, 220, 120), scale=0.55, thickness=1,
@@ -203,11 +202,11 @@ def main():
                 if sel[2] > 0 and sel[3] > 0:
                     roi = tuple(int(v) for v in sel)
                     cv2.resizeWindow(WIN, roi[2], roi[3])
-                    print(f"ROI set: {roi}")
+                    print(f"관심영역 지정됨: {roi}")
                 else:
                     roi = None
                     cv2.resizeWindow(WIN, config.CAM_WIDTH, config.CAM_HEIGHT)
-                    print("ROI cleared (full frame)")
+                    print("관심영역 해제 (전체 화면)")
                 _save_roi(config.ROI_PATH, roi)
                 # 좌표계가 바뀌었으니 기존 오버레이 무효화 + 자동 재검출.
                 detection_state = None
@@ -219,7 +218,7 @@ def main():
     finally:
         camera.stop()
         cv2.destroyAllWindows()
-        print("Shutdown.")
+        print("종료되었습니다.")
 
 
 if __name__ == "__main__":

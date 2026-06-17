@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Compare detector checkpoints on a held-out COCO valid set: per-class AP@0.5
-+ recall. The key use is confirming an incremental LoRA round didn't break a
-class head (e.g. pallet collapsing to AP 0.0 when real frames lack pallet
-labels — the failure replay is designed to prevent).
+"""[검증] 검출 모델 가중치들을 비교합니다 — 클래스별 AP@0.5와 recall.
 
-Usage:
-  depal-eval --models v8=/path/a.pth v8_3=/path/b.pth [--data DIR] [--n 250]
+주 용도: 증분 학습(LoRA 라운드) 뒤에 특정 클래스가 망가지지 않았는지 확인하는
+것입니다(예: 실측에 팔레트 라벨이 없어 팔레트 AP가 0으로 붕괴 — 리플레이가 막아
+주려는 그 현상). held-out(학습에 안 쓴) 데이터로 평가합니다.
+
+사용법:
+  dr-onsite-eval --models 이전=/경로/a.pth 새것=/경로/b.pth
+  dr-onsite-eval --models v8=/a.pth v8_3=/b.pth --data DIR --n 250
 """
 import argparse
 import json
@@ -18,7 +20,7 @@ from .. import config
 from ..runtime.inference import SegModel
 
 CLASSES = {0: "Box", 1: "Tote", 2: "Wrap", 3: "Pallet"}
-CONF_EVAL = 0.05   # low threshold for the AP curve
+CONF_EVAL = 0.05   # AP 곡선용 낮은 임계값
 
 
 def iou(a, B):
@@ -49,19 +51,20 @@ def ap_from(tp_scores, n_gt):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--models", nargs="+", required=True,
-                    help="name=path pairs, e.g. v8=/a.pth v8_3=/b.pth")
+                    help="'이름=경로' 쌍. 예: 이전=/a.pth 새것=/b.pth")
     ap.add_argument("--data", default=os.path.join(str(config.PALLET_DATA_DIR), "valid"),
-                    help="COCO valid dir (held-out)")
-    ap.add_argument("--n", type=int, default=250, help="num images to eval")
-    ap.add_argument("--device", default="cuda")
+                    help="평가용 COCO valid 폴더(held-out)")
+    ap.add_argument("--n", type=int, default=250, help="평가할 이미지 수")
+    ap.add_argument("--device", default="cuda", help="cpu 또는 cuda")
     args = ap.parse_args()
 
     models = {}
     for spec in args.models:
         if "=" not in spec:
-            ap.error(f"--models entries must be name=path, got {spec!r}")
+            ap.error(f"--models 항목은 '이름=경로' 형식이어야 합니다: {spec!r}")
         name, path = spec.split("=", 1)
         models[name] = path
 
@@ -72,7 +75,7 @@ def main():
     for a in coco["annotations"]:
         x, y, w, h = a["bbox"]
         gt.setdefault(a["image_id"], []).append((a["category_id"], [x, y, x + w, y + h]))
-    # prefer pallet-containing images, then fill
+    # 팔레트 포함 이미지를 우선 선택한 뒤 나머지로 채움
     pal = [i for i, g in gt.items() if any(c == 3 for c, _ in g)]
     rest = [i for i in imgs if i not in pal]
     random.seed(0); random.shuffle(rest)
@@ -82,7 +85,7 @@ def main():
     for i in sel:
         for c, _ in gt.get(i, []):
             ng[c] += 1
-    print(f"eval images {len(sel)} (with pallet {sum(i in pal for i in sel)}) | GT: "
+    print(f"평가 이미지 {len(sel)}장 (팔레트 포함 {sum(i in pal for i in sel)}장) | 정답 라벨: "
           + ", ".join(f"{CLASSES[c]}:{ng[c]}" for c in CLASSES))
 
     results = {}
@@ -119,8 +122,8 @@ def main():
         torch.cuda.empty_cache()
 
     names = list(results.keys())
-    print("\n=== per-class AP@0.5  (recall) ===")
-    print(f"{'class':8} " + " ".join(f"{nm:>16}" for nm in names))
+    print("\n=== 클래스별 AP@0.5  (recall) ===")
+    print(f"{'클래스':8} " + " ".join(f"{nm:>16}" for nm in names))
 
     def fmt(ap_v, tp, c):
         return "  GT0" if ap_v is None else f"{ap_v:.3f} (r={tp/ng[c]:.2f})"
@@ -131,7 +134,7 @@ def main():
             aps, rec = results[nm]
             cells.append(f"{fmt(aps[c], rec[c], c):>16}")
         print(f"{CLASSES[c]:8} " + " ".join(cells))
-    print("\nKey: a drop in Pallet AP/recall vs the previous version = head degradation.")
+    print("\n핵심: 이전 버전보다 Pallet AP/recall 이 떨어졌다면 팔레트 헤드 열화입니다.")
 
 
 if __name__ == "__main__":

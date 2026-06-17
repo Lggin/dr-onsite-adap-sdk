@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
-"""Active-learning round orchestrator: refresh the detector from the current
-corpus.
+"""[4단계] 라운드 자동 실행 — 현장 데이터로 검출 모델을 갱신합니다.
 
-  (optional) depal-replay   build the replay-mixed training set
-  1) depal-train            LoRA fine-tune from BASE_WEIGHTS
-  2) depal-merge            fuse the adapter → FINAL_WEIGHTS
+순서:
+  (선택) dr-onsite-replay   학습용 리플레이 데이터셋 생성
+  1) dr-onsite-train        직전 가중치(BASE_WEIGHTS)에서 LoRA 미세조정
+  2) dr-onsite-merge        LoRA 어댑터를 합쳐 단일 가중치(FINAL_WEIGHTS) 생성
 
-Each step runs as its own subprocess so GPU/Lightning state stays isolated.
+각 단계는 별도 프로세스로 실행돼 GPU/학습 상태가 서로 섞이지 않습니다.
 
-⚠️ Guardrail: only labeled/curated data is used. Do NOT auto-absorb live
-   un-curated detections — that corrupts the model (unmanned, very-low-error
-   constraint), so updates happen as a deliberate "round".
-   + If the training set has 0 pallet annotations the round stops: training
-     the detector on a pallet-free batch can weaken the pallet head (the
-     forgetting that replay is designed to prevent). Add real pallet labels,
-     or pass --force, or mix in a pallet-bearing replay set (--replay).
+⚠️ 안전장치: 사람이 검수한 라벨만 사용합니다. 라이브 검출을 자동으로 흡수하지
+   마세요(무인·극저에러 운영 원칙에 어긋나며 모델이 오염됩니다). 그래서 갱신은
+   의도적인 "라운드" 단위로만 합니다.
+   + 학습셋에 팔레트 라벨이 0개면 라운드를 멈춥니다: 팔레트 없는 배치로 학습하면
+     팔레트 인식 능력이 약해질 수 있습니다(리플레이가 막아주려는 그 망각).
+     팔레트 실측 라벨을 추가하거나, --replay 로 합성 팔레트를 섞거나, --force 로
+     강행하세요.
 
-Recommended recipe (per round):
-  field collect (live app 't') → depal-ingest → depal-replay
-    → depal-round → depal-eval → deploy (point DEPAL_WEIGHTS at FINAL_WEIGHTS)
+권장 흐름(한 라운드):
+  현장 수집(라이브 앱 't') → dr-onsite-ingest → dr-onsite-replay
+    → dr-onsite-round → dr-onsite-eval → 배포(DEPAL_WEIGHTS 를 새 가중치로)
 
-Usage:
-  depal-round                 # train + merge
-  depal-round --replay        # build replay set first, then train + merge
-  depal-round --force         # proceed even with 0 pallet annotations
+사용법:
+  dr-onsite-round            # 학습 + 합치기
+  dr-onsite-round --replay   # 리플레이 데이터셋부터 만들고 학습 + 합치기
+  dr-onsite-round --force    # 팔레트 라벨이 0개여도 강행
 """
 import argparse
 import json
@@ -53,40 +53,40 @@ def run(title, module):
     t = time.time()
     r = subprocess.run(cmd)
     if r.returncode != 0:
-        sys.exit(f"❌ '{title}' failed (exit {r.returncode}). Round aborted.")
-    print(f"✅ {title} done ({(time.time()-t)/60:.1f} min)", flush=True)
+        sys.exit(f"❌ '{title}' 실패 (종료코드 {r.returncode}). 라운드 중단.")
+    print(f"✅ {title} 완료 ({(time.time()-t)/60:.1f}분)", flush=True)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--replay", action="store_true",
-                    help="build the replay-mixed training set before training")
+                    help="학습 전에 리플레이 혼합 데이터셋을 먼저 만든다")
     ap.add_argument("--force", action="store_true",
-                    help="proceed even with 0 pallet annotations")
+                    help="팔레트 라벨이 0개여도 진행한다")
     args = ap.parse_args()
 
     if args.replay:
-        run("0/2 build replay set", "replay")
+        run("0/2 리플레이 데이터셋 생성", "replay")
 
     npal = pallet_ann_count(config.TRAIN_DATA_DIR)
-    print(f"📊 pallet (cid={config.PALLET_CID}) annotations in {config.TRAIN_DATA_DIR}: {npal}")
+    print(f"📊 팔레트(cid={config.PALLET_CID}) 라벨 수 @ {config.TRAIN_DATA_DIR}: {npal}개")
     if npal == 0 and not args.force:
         sys.exit(
-            "⛔ 0 pallet annotations. Training on a pallet-free batch can weaken "
-            "the pallet head.\n   → add real pallet labels, use --replay to mix in "
-            "pallet-bearing synthetic frames, or --force to proceed anyway."
+            "⛔ 팔레트 라벨이 0개입니다. 팔레트 없는 배치로 학습하면 팔레트 인식이 "
+            "약해질 수 있습니다.\n   → 팔레트 실측 라벨을 추가하거나, --replay 로 "
+            "팔레트 포함 합성을 섞거나, --force 로 강행하세요."
         )
 
-    run("1/2 LoRA train (detector)", "train_lora")
-    run("2/2 LoRA merge", "merge")
+    run("1/2 LoRA 학습 (검출기)", "train_lora")
+    run("2/2 LoRA 합치기 (merge)", "merge")
 
-    print("\n🎉 Round complete.")
-    print(f"   • new merged weights: {config.FINAL_WEIGHTS}")
-    print("   • evaluate: depal-eval --models prev=<old.pth> new="
+    print("\n🎉 라운드 완료.")
+    print(f"   • 새 가중치: {config.FINAL_WEIGHTS}")
+    print("   • 평가: dr-onsite-eval --models prev=<이전.pth> new="
           f"{config.FINAL_WEIGHTS}")
-    print("   • deploy: point DEPAL_WEIGHTS at the new file")
-    print("   • next round: bump DEPAL_BASE_WEIGHTS to this result")
+    print("   • 배포: 환경변수 DEPAL_WEIGHTS 를 새 가중치로 지정")
+    print("   • 다음 라운드: DEPAL_BASE_WEIGHTS 를 이 결과로 올리세요")
 
 
 if __name__ == "__main__":
