@@ -12,6 +12,8 @@ cv2 키보드 앱(dr-onsite-run)의 상위 버전. 사이드바 버튼·카메�
   _DetectThread 'd'(검출) 시 run_detection 을 UI 밖에서 실행 → 결과 시그널
 영상 위 오버레이는 detect.draw_state 를 그대로 재사용한다(cv2 앱과 동일 결과).
 """
+import glob
+import os
 import sys
 import time
 
@@ -255,19 +257,28 @@ class MainWindow(QtWidgets.QMainWindow):
             side.addWidget(b)
         side.addStretch(1)
 
-        # 오른쪽: 영상 + 검출 목록
-        right = QtWidgets.QVBoxLayout()
-        root.addLayout(right, 1)
+        # 오른쪽: 탭 (실시간 인식 / 라벨 데이터 / 학습)
+        self.tabs = QtWidgets.QTabWidget()
+        root.addWidget(self.tabs, 1)
+
+        # 탭1: 실시간 인식 (영상 + 검출 목록)
+        live = QtWidgets.QWidget()
+        lv = QtWidgets.QVBoxLayout(live)
         self.video = VideoLabel()
         self.video.roi_selected.connect(self._on_roi_selected)
-        right.addWidget(self.video, 1)
-
+        lv.addWidget(self.video, 1)
         self.table = QtWidgets.QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["#", "클래스", "크기(mm)", "중심(cm)"])
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setMaximumHeight(180)
+        self.table.setMaximumHeight(160)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        right.addWidget(self.table, 0)
+        lv.addWidget(self.table, 0)
+        self.tabs.addTab(live, "실시간 인식")
+
+        # 탭2: 라벨 데이터 (저장된 라벨 썸네일)
+        self.tabs.addTab(self._build_label_tab(), "라벨 데이터")
+        # 탭3: 학습 (파이프라인 실행 + 로그)
+        self.tabs.addTab(self._build_train_tab(), "학습")
 
         self.status = self.statusBar()
         self._set_status("모델 로딩 중… 잠시만요")
@@ -433,6 +444,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._set_status("라벨링 종료")
         except Exception as e:  # noqa: BLE001
             self._set_status(f"⚠ 라벨링 실패: {e}")
+        self._refresh_labels()
+        self.tabs.setCurrentIndex(1)   # '라벨 데이터' 탭으로 전환해 결과 확인
 
     def _clear_overlay(self):
         self.state = None
@@ -458,14 +471,130 @@ class MainWindow(QtWidgets.QMainWindow):
             f"{msg}{cnt}   ·   {self._fps:.1f} FPS · cam {cam} · "
             f"{config.NUM_CLASSES}cls")
 
+    # ── 라벨 데이터 탭 ──
+    def _build_label_tab(self):
+        w = QtWidgets.QWidget()
+        v = QtWidgets.QVBoxLayout(w)
+        top = QtWidgets.QHBoxLayout()
+        self.lbl_count = QtWidgets.QLabel("라벨 0개")
+        btn_ref = QtWidgets.QPushButton("새로고침")
+        btn_ref.clicked.connect(self._refresh_labels)
+        top.addWidget(self.lbl_count)
+        top.addStretch(1)
+        top.addWidget(btn_ref)
+        v.addLayout(top)
+        self.lbl_scroll = QtWidgets.QScrollArea()
+        self.lbl_scroll.setWidgetResizable(True)
+        self.lbl_grid_host = QtWidgets.QWidget()
+        self.lbl_grid = QtWidgets.QGridLayout(self.lbl_grid_host)
+        self.lbl_scroll.setWidget(self.lbl_grid_host)
+        v.addWidget(self.lbl_scroll, 1)
+        self._refresh_labels()
+        return w
+
+    def _refresh_labels(self):
+        while self.lbl_grid.count():
+            it = self.lbl_grid.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        d = config.ACTIVE_DATA_DIR
+        files = sorted(glob.glob(os.path.join(d, "sam_hard_*.jpg")), reverse=True)
+        self.lbl_count.setText(f"라벨 이미지 {len(files)}개   ·   {d}")
+        cols = 4
+        for i, fp in enumerate(files[:60]):    # 최근 60장
+            pm = QtGui.QPixmap(fp)
+            if pm.isNull():
+                continue
+            thumb = QtWidgets.QLabel()
+            thumb.setPixmap(pm.scaled(190, 135, Qt.KeepAspectRatio,
+                                      Qt.SmoothTransformation))
+            thumb.setToolTip(os.path.basename(fp))
+            thumb.setAlignment(Qt.AlignCenter)
+            thumb.setStyleSheet("border:1px solid #444; padding:2px;")
+            self.lbl_grid.addWidget(thumb, i // cols, i % cols)
+
+    # ── 학습 탭 (파이프라인 서브프로세스 + 로그) ──
+    def _build_train_tab(self):
+        self.proc = None
+        w = QtWidgets.QWidget()
+        v = QtWidgets.QVBoxLayout(w)
+        warn = QtWidgets.QLabel(
+            "⚠ 학습은 GPU를 점유합니다 — 진행 중엔 실시간 검출이 느려집니다.\n"
+            "   경로는 환경변수(DEPAL_BASE_WEIGHTS/TRAIN_DATA/FINAL 등)로 지정됩니다.")
+        warn.setStyleSheet("color:#e09000; font-weight:bold;")
+        v.addWidget(warn)
+        row = QtWidgets.QHBoxLayout()
+        self.train_btns = {}
+        steps = [("① 취합", "ingest", []),
+                 ("② 리플레이", "replay", []),
+                 ("③ 학습", "train_lora", []),
+                 ("④ 병합", "merge", []),
+                 ("▶ 전체 라운드", "round", ["--replay"])]
+        for label, mod, args in steps:
+            b = QtWidgets.QPushButton(label)
+            b.clicked.connect(
+                lambda _=False, m=mod, a=args: self._run_pipeline(m, a))
+            self.train_btns[mod] = b
+            row.addWidget(b)
+        self.btn_stop = QtWidgets.QPushButton("■ 중지")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self._stop_training)
+        row.addWidget(self.btn_stop)
+        v.addLayout(row)
+        self.train_log = QtWidgets.QPlainTextEdit()
+        self.train_log.setReadOnly(True)
+        self.train_log.setStyleSheet(
+            "background:#111; color:#ddd; font-family:monospace; font-size:12px;")
+        v.addWidget(self.train_log, 1)
+        return w
+
+    def _run_pipeline(self, module, args):
+        if self.proc is not None and self.proc.state() != QtCore.QProcess.NotRunning:
+            self._append_log("⚠ 이미 다른 작업이 실행 중입니다.\n")
+            return
+        self.proc = QtCore.QProcess(self)
+        self.proc.setProcessChannelMode(QtCore.QProcess.MergedChannels)
+        self.proc.readyReadStandardOutput.connect(self._on_proc_ready)
+        self.proc.finished.connect(self._on_proc_finished)
+        cargs = ["-u", "-m", f"dr_onsite_adap.pipeline.{module}"] + list(args)
+        self._append_log(f"\n$ {sys.executable} {' '.join(cargs)}\n")
+        for b in self.train_btns.values():
+            b.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        self.proc.start(sys.executable, cargs)
+
+    def _append_log(self, text):
+        self.train_log.moveCursor(QtGui.QTextCursor.End)
+        self.train_log.insertPlainText(text)
+        self.train_log.moveCursor(QtGui.QTextCursor.End)
+
+    def _on_proc_ready(self):
+        data = bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace")
+        self._append_log(data)
+
+    def _on_proc_finished(self, code, _status):
+        self._append_log(f"\n[종료] exit={code}\n")
+        for b in self.train_btns.values():
+            b.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        self._refresh_labels()
+
+    def _stop_training(self):
+        if self.proc is not None and self.proc.state() != QtCore.QProcess.NotRunning:
+            self.proc.kill()
+            self._append_log("\n[사용자 중지]\n")
+
     def closeEvent(self, ev):
         if self.cam_thread is not None:
             self.cam_thread.stop()
+        if getattr(self, "proc", None) is not None and \
+                self.proc.state() != QtCore.QProcess.NotRunning:
+            self.proc.kill()
         ev.accept()
 
 
 def main():
-    if not (config.WEIGHTS_PATH and __import__("os").path.isfile(config.WEIGHTS_PATH)):
+    if not (config.WEIGHTS_PATH and os.path.isfile(config.WEIGHTS_PATH)):
         print(f"⚠ 가중치 없음: {config.WEIGHTS_PATH} — 환경변수 DEPAL_WEIGHTS 확인")
     app = QtWidgets.QApplication(sys.argv)
     win = MainWindow()
