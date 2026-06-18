@@ -127,41 +127,60 @@ def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
     rel = P_3D - P_top
     plane_pts = np.stack([rel @ e1, rel @ e2], axis=1).astype(np.float32)
 
-    # ─── 6. minAreaRect in plane coordinates ───
+    # ─── 6. 사각형: 방향은 minAreaRect, 크기·중심은 윗면 점들의 백분위(robust) ───
+    # minAreaRect 만 쓰면 모든 점을 감싸므로(가장자리 잡음/마스크 spill 포함) 변 길이가
+    # 체계적으로 과대 추정된다. 방향(각도)만 minAreaRect 에서 가져오고, 변 길이/중심은
+    # 윗면 점들을 그 축에 투영해 [trim, 100-trim] 백분위 구간으로 구해 가장자리 이상치를
+    # 잘라낸다(TOP_FACE_TRIM_PCT). 중심 = 백분위 구간 중점.
     rect_plane = cv2.minAreaRect(plane_pts)
     if rect_plane[1][0] < 1e-4 or rect_plane[1][1] < 1e-4:
         return None, "degenerate"
     corners_plane = cv2.boxPoints(rect_plane)
+    ax_u = corners_plane[1] - corners_plane[0]
+    ax_v = corners_plane[2] - corners_plane[1]
+    nu = float(np.linalg.norm(ax_u))
+    nv = float(np.linalg.norm(ax_v))
+    if nu < 1e-6 or nv < 1e-6:
+        return None, "degenerate"
+    ax_u = ax_u / nu
+    ax_v = ax_v / nv
 
-    # ─── 7. Lift back to 3D ───
-    corners_3d = (
-        P_top[None, :]
-        + corners_plane[:, 0:1] * e1[None, :]
-        + corners_plane[:, 1:2] * e2[None, :]
-    ).astype(np.float64)
-    centroid = corners_3d.mean(axis=0)
+    trim = getattr(cfg, "TOP_FACE_TRIM_PCT", 1.0)
+    if int(on_top.sum()) >= cfg.MIN_PLANE_INLIERS:
+        # 실제 윗면 점들(채워진 영역)을 평면 좌표로
+        top_rel = valid_pts[on_top] - P_top
+        pts2 = np.stack([top_rel @ e1, top_rel @ e2], axis=1)
+    else:
+        pts2 = plane_pts.astype(np.float64)   # 폴백: ray-projected contour
+    pu = pts2 @ ax_u
+    pv = pts2 @ ax_v
+    u_lo, u_hi = np.percentile(pu, [trim, 100.0 - trim])
+    v_lo, v_hi = np.percentile(pv, [trim, 100.0 - trim])
+    len_u = float(u_hi - u_lo)
+    len_v = float(v_hi - v_lo)
+    center_plane = ((u_lo + u_hi) * 0.5) * ax_u + ((v_lo + v_hi) * 0.5) * ax_v
+
+    # ─── 7. Lift centre + axes back to 3D ───
+    centroid = (P_top + center_plane[0] * e1 + center_plane[1] * e2).astype(np.float64)
     if centroid[2] <= 0:
         return None, "behind cam"
-
     u_center = int(round(centroid[0] * fx / centroid[2] + cx))
     v_center = int(round(centroid[1] * fy / centroid[2] + cy))
 
-    edge_a = corners_3d[1] - corners_3d[0]
-    edge_b = corners_3d[2] - corners_3d[1]
-    len_a = float(np.linalg.norm(edge_a))
-    len_b = float(np.linalg.norm(edge_b))
-    if len_a < 1e-6 or len_b < 1e-6:
-        return None, "degenerate"
-    if len_a >= len_b:
-        long_axis = (edge_a / len_a).astype(np.float32)
-        short_axis = (edge_b / len_b).astype(np.float32)
-        long_mm = len_a * 1000.0
-        short_mm = len_b * 1000.0
+    axis_u_3d = ax_u[0] * e1 + ax_u[1] * e2
+    axis_v_3d = ax_v[0] * e1 + ax_v[1] * e2
+    if len_u >= len_v:
+        long_axis = axis_u_3d.astype(np.float32)
+        short_axis = axis_v_3d.astype(np.float32)
+        long_mm = len_u * 1000.0
+        short_mm = len_v * 1000.0
     else:
-        long_axis = (edge_b / len_b).astype(np.float32)
-        short_axis = (edge_a / len_a).astype(np.float32)
-        long_mm = len_b * 1000.0
-        short_mm = len_a * 1000.0
+        long_axis = axis_v_3d.astype(np.float32)
+        short_axis = axis_u_3d.astype(np.float32)
+        long_mm = len_v * 1000.0
+        short_mm = len_u * 1000.0
+    if long_mm < 1e-3 or short_mm < 1e-3:
+        return None, "degenerate"
 
     # ─── 8. Snapshot point clouds (height-based 3-way split) ───
     all_pts_f32 = valid_pts.astype(np.float32)

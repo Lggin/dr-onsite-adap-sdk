@@ -103,6 +103,11 @@ MIN_PLANE_INLIERS = int(os.environ.get("DEPAL_MIN_PLANE_INLIERS", "80"))
 # boxes. Larger = more tolerant (may include sides); smaller = stricter.
 TOP_FACE_BAND_M = float(os.environ.get("DEPAL_TOP_FACE_BAND_M", "0.03"))
 
+# Edge length is the [trim, 100-trim] percentile span of top-face points along
+# each rectangle axis (not min/max), trimming edge outliers / mask spill that
+# would otherwise inflate the measured side lengths. 0 = raw min/max.
+TOP_FACE_TRIM_PCT = float(os.environ.get("DEPAL_TOP_FACE_TRIM_PCT", "1.0"))
+
 # World "up" in the camera frame. Used to pick the top slice and to express
 # the horizontal plane. Overridden by IMU at runtime when available; this is
 # the fallback for fixed mounts. Calibrate per mounting:
