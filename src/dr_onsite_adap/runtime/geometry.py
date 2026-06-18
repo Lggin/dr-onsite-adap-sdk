@@ -206,8 +206,8 @@ def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
     }, None
 
 
-def estimate_up_dir(depth_m, intrinsics, cfg, iters=300, thresh=0.012,
-                    subsample=8000, seed=0):
+def estimate_up_dir(depth_m, intrinsics, cfg, iters=500, thresh=0.012,
+                    subsample=15000, seed=0, refine_iters=8):
     """현재 depth 프레임에서 **지배 수평면(바닥/팔레트 등)** 의 법선을 RANSAC 으로 찾아
     카메라 프레임 기준 '월드 위(up)' 단위벡터를 추정한다.
 
@@ -246,11 +246,23 @@ def estimate_up_dir(depth_m, intrinsics, cfg, iters=300, thresh=0.012,
     if best_mask is None or best_inl < 200:
         return None
 
-    # inlier 들로 법선 정밀화(PCA: 최소분산 방향 = 평면 법선)
+    # inlier 들로 법선 반복 정밀화: PCA(최소분산 방향=법선)로 적합 → 그 평면 기준으로
+    # inlier 재선정 → 다시 적합. 몇 번 돌리면 total-least-squares 평면으로 수렴해
+    # RANSAC 3점 추정보다 훨씬 정밀한 법선을 얻는다(up_dir 미세오차↓).
     Q = P[best_mask]
-    c = Q.mean(axis=0)
-    _, _, Vt = np.linalg.svd(Q - c, full_matrices=False)
-    n = Vt[-1]
+    n = None
+    for _ in range(refine_iters):
+        c = Q.mean(axis=0)
+        _, _, Vt = np.linalg.svd(Q - c, full_matrices=False)
+        n = Vt[-1]
+        n = n / np.linalg.norm(n)
+        d = -float(n @ c)
+        dist = np.abs(P @ n + d)
+        newQ = P[dist < thresh]
+        if len(newQ) < 200 or len(newQ) == len(Q):
+            Q = newQ if len(newQ) >= 200 else Q
+            break
+        Q = newQ
     if n[2] > 0:                       # 위(카메라 쪽)를 향하도록 z<0 로
         n = -n
     n = n / np.linalg.norm(n)
