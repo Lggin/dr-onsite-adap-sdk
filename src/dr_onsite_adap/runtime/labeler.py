@@ -46,6 +46,7 @@ class SAMLabeler:
 
     def _reset(self):
         self.confirmed_img = None
+        self.base_img = None        # 라벨 안 그려진 원본(undo 시 재구성용)
         self.temp_img = None
         self.mask_canvas = None
         self.annotations = []
@@ -60,6 +61,40 @@ class SAMLabeler:
         self.input_labels = []
         self.poly_mode = False      # 'p' 로 토글. True 면 클릭=폴리곤 점.
         self.poly_pts = []          # 수동 폴리곤 정점들
+
+    def _rebuild(self):
+        """현재 self.annotations 만으로 화면(confirmed_img)과 mask_canvas 를 다시 그린다.
+        라벨 하나를 취소(undo)했을 때 그 라벨만 사라지게 하기 위함."""
+        self.confirmed_img = self.base_img.copy()
+        self.mask_canvas = np.zeros(self.base_img.shape[:2], dtype=np.uint8)
+        for a in self.annotations:
+            name, color = self.classes[a["class_id"]]
+            poly = np.array(a["segmentation"], np.int32).reshape(-1, 2)
+            m = np.zeros(self.base_img.shape[:2], dtype=np.uint8)
+            cv2.fillPoly(m, [poly], 1)
+            mb = m.astype(bool)
+            self.mask_canvas[mb] = 255
+            overlay = np.zeros_like(self.confirmed_img)
+            overlay[mb] = color
+            cv2.addWeighted(self.confirmed_img, 1.0, overlay, 0.4, 0, self.confirmed_img)
+            cv2.polylines(self.confirmed_img, [poly.reshape(-1, 1, 2)], True, color, 2)
+        # 진행 중이던 마스크/폴리곤도 초기화
+        self.current_mask = self.current_polygon = self.current_bbox = None
+        self.saved_box = None
+        self.input_points = []
+        self.input_labels = []
+        self.poly_pts = []
+        self.temp_img = self.confirmed_img.copy()
+        cv2.imshow(self.WINDOW_NAME, self.temp_img)
+
+    def _undo_last(self):
+        """마지막으로 확정한 라벨 하나만 취소."""
+        if not self.annotations:
+            print("  취소할 라벨이 없습니다")
+            return
+        removed = self.annotations.pop()
+        self._rebuild()
+        print(f"  ↩ 마지막 라벨 취소: {removed['class_name']} (남은 {len(self.annotations)}개)")
 
     def _draw_poly(self):
         """현재 폴리곤 정점/선을 미리보기로 그린다."""
@@ -187,6 +222,7 @@ class SAMLabeler:
         Returns True if at least one annotation was saved to disk."""
         self._reset()
         self.confirmed_img = bgr_frame.copy()
+        self.base_img = bgr_frame.copy()     # undo 시 재구성용 원본
         self.temp_img = self.confirmed_img.copy()
         self.mask_canvas = np.zeros(bgr_frame.shape[:2], dtype=np.uint8)
         rgb_frame = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
@@ -197,7 +233,7 @@ class SAMLabeler:
         print("  [SAM] 드래그=박스, 좌클릭=포함점, 우클릭=제외점")
         print("  [폴리곤] 'p'=모드 토글, 좌클릭=점 찍기, 우클릭=점 취소, 'f'=완성")
         print(f"  마스크 확정용 숫자키: {keyhint} (반복 가능)")
-        print("  Enter=저장  /  ESC=취소\n")
+        print("  'z'=마지막 라벨 취소(되돌리기)  /  Enter=저장  /  ESC=프레임 전체 취소\n")
 
         self.predictor.set_image(rgb_frame)
         # AUTOSIZE 유지(창=이미지 1:1 → 마우스 좌표가 픽셀과 정확히 일치).
@@ -214,7 +250,9 @@ class SAMLabeler:
         try:
             while True:
                 k = cv2.waitKey(1) & 0xFF
-                if k == ord("p"):
+                if k == ord("z"):
+                    self._undo_last()
+                elif k == ord("p"):
                     self.poly_mode = not self.poly_mode
                     self.poly_pts = []
                     self.temp_img = self.confirmed_img.copy()
