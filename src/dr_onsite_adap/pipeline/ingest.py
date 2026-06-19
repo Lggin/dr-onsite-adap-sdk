@@ -46,6 +46,20 @@ def main():
 
     train_p = os.path.join(data_dir, "train", "_annotations.coco.json")
     valid_p = os.path.join(data_dir, "valid", "_annotations.coco.json")
+    test_p = os.path.join(data_dir, "test", "_annotations.coco.json")
+
+    # 처음(데이터셋 없음)이면 빈 COCO(4클래스)로 생성 → 맨바닥에서 라벨→학습 가능.
+    if not os.path.exists(train_p):
+        cats = [{"id": 0, "name": "Box", "supercategory": "object"},
+                {"id": 1, "name": "Tote Box", "supercategory": "object"},
+                {"id": 2, "name": "Shrink Wrap", "supercategory": "object"},
+                {"id": 3, "name": "Pallet", "supercategory": "object"}]
+        for sp_p in (train_p, valid_p, test_p):
+            os.makedirs(os.path.dirname(sp_p), exist_ok=True)
+            with open(sp_p, "w") as f:
+                json.dump({"images": [], "annotations": [], "categories": cats}, f)
+        print(f"🆕 빈 데이터셋 생성(train/valid/test, 4클래스) → {data_dir}")
+
     train = load(train_p)
     valid = load(valid_p)
     existing = {im["file_name"] for im in train["images"]}
@@ -121,6 +135,12 @@ def main():
         json.dump(train, f)
     with open(valid_p, "w") as f:
         json.dump(valid, f)
+    # test split 이 있으면(처음 생성 시 포함) 동일하게 채워 학습 로더가 안전하게 동작.
+    if os.path.exists(test_p):
+        test = load(test_p)
+        append_to(test, "test")
+        with open(test_p, "w") as f:
+            json.dump(test, f)
     print(f"✅ train +{ti}장/{ta}라벨 (총 {len(train['images'])}장), "
           f"valid +{vi}장/{va}라벨 (총 {len(valid['images'])}장)")
 
