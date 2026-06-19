@@ -14,6 +14,8 @@ PyTorch-Lightning 의 fit() 을 가로채 (a) 내부 모델을 PEFT LoRA 로 감
 
 사용법:  dr-onsite-train   (보통은 dr-onsite-round 가 알아서 부릅니다)
 """
+import json
+import os
 import types
 from pathlib import Path
 
@@ -112,11 +114,26 @@ def main():
 
     pl.Trainer.fit = _make_custom_fit(pl.Trainer.fit)
 
-    print(f"⚡ 2. training on {config.TRAIN_DATA_DIR}")
+    # 학습 이미지 해상도가 섞여 있으면(예: ROI 크롭을 프레임마다 다르게 잡은 경우)
+    # rfdetr 가 배치로 마스크를 못 합쳐 터진다(matcher: tensors must match). 그럴 땐
+    # batch_size=1 로 자동 강제해 안전하게 학습한다(소량 AL 데이터엔 충분).
+    bs = config.BATCH_SIZE
+    tp = os.path.join(config.TRAIN_DATA_DIR, "train", "_annotations.coco.json")
+    try:
+        sizes = {(im.get("width"), im.get("height"))
+                 for im in json.load(open(tp))["images"]}
+    except Exception:
+        sizes = set()
+    if len(sizes) > 1 and bs > 1:
+        print(f"⚠️ 학습 이미지 해상도가 여러 종류({len(sizes)}종) → batch_size=1 로 자동 전환"
+              f" (배치 마스크 불일치 회피). 균일 ROI 로 라벨하면 bs>1 가능.")
+        bs = 1
+
+    print(f"⚡ 2. training on {config.TRAIN_DATA_DIR} (batch_size={bs})")
     wrapper.train(
         dataset_dir=config.TRAIN_DATA_DIR,
         epochs=config.EPOCHS,
-        batch_size=config.BATCH_SIZE,
+        batch_size=bs,
         lr=config.LR,
         num_workers=4,
         aug_config=AUG_CONFIG,
