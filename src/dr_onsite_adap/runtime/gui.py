@@ -352,7 +352,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         disp = color_r.copy()
         if self.state is not None:
-            draw_state(disp, self.state, self.state_intr)
+            # 영상 위 텍스트 패널은 끔(정보는 아래 '검출 목록' 표에 있어 가림 방지).
+            draw_state(disp, self.state, self.state_intr, show_panel=False)
         self._show(disp)
         self._update_statusline()
 

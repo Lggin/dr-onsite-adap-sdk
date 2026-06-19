@@ -121,8 +121,13 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img):
     }
 
 
-def draw_state(img, state, intr):
-    """Overlay a stored detection state onto the current camera frame."""
+def draw_state(img, state, intr, show_panel=True):
+    """Overlay a stored detection state onto the current camera frame.
+
+    show_panel: draw the top-right text info panel. The cv2 app keeps it (no
+    other place for the numbers); the GUI sets it False because it shows the
+    same info in its detection table, so the panel would just cover the view.
+    """
     h_img, w_img = img.shape[:2]
 
     for mask, color_bgr in state["masks_with_color"]:
@@ -156,7 +161,8 @@ def draw_state(img, state, intr):
     for pos, reason in state["fail_markers"]:
         draw_fail_marker(img, pos, reason)
 
-    draw_info_panel(img, panel_entries)
+    if show_panel:
+        draw_info_panel(img, panel_entries)
 
     # 팔레트 위치 표시 (픽 대상 아님 — 마스크는 위에서 이미 오버레이됨)
     for p in state.get("pallets", []):
