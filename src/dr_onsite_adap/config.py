@@ -80,6 +80,10 @@ USE_IMU = os.environ.get("DEPAL_USE_IMU", "1") not in ("0", "false", "False")
 CAM_WIDTH = int(os.environ.get("DEPAL_CAM_WIDTH", "1280"))
 CAM_HEIGHT = int(os.environ.get("DEPAL_CAM_HEIGHT", "720"))
 CAM_FPS = int(os.environ.get("DEPAL_CAM_FPS", "30"))
+# Orbbec depth 해상도 모드 "WxH" (예: "320x288"). 비우면 기본(640x576) 우선.
+# 낮추면 depth 대역폭이 크게 줄어 여러 클라이언트가 동시에 봐도 depth 가 안 굶음.
+# 윗면 추정은 color 해상도로 정렬되므로 낮은 depth 해상도도 충분(2m에서 cm급).
+DEPTH_MODE = os.environ.get("DEPAL_DEPTH_MODE", "")
 
 # ---------------------------------------------------------------------------
 # GEOMETRY (top-face estimation)

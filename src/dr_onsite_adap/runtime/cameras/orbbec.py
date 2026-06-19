@@ -70,13 +70,28 @@ def _enable_color(pipeline, cfg, width, height, fps):
     )
 
 
-def _enable_depth(pipeline, cfg, fps):
-    """Enable a depth stream using one of Femto Bolt's native ToF resolutions."""
+def _enable_depth(pipeline, cfg, fps, prefer=None):
+    """Enable a depth stream using one of the native ToF resolutions.
+
+    prefer="WxH" (또는 env DEPAL_DEPTH_MODE) 를 주면 그 해상도를 먼저 시도한다.
+    낮은 해상도(예: 320x288)는 depth 대역폭을 크게 줄여 여러 클라이언트 동시 시청 시
+    depth 가 굶지 않게 한다.
+    """
+    if prefer is None:
+        prefer = os.environ.get("DEPAL_DEPTH_MODE", "").strip()
+    order = list(_DEPTH_PREFERRED)
+    if prefer:
+        try:
+            pw, ph = (int(v) for v in prefer.lower().split("x"))
+            order = [(pw, ph)] + [m for m in order if m != (pw, ph)]
+        except Exception:
+            print(f"  ⚠️ DEPAL_DEPTH_MODE='{prefer}' 형식 오류(WxH 예: 320x288), 기본 사용")
     depth_list = pipeline.get_stream_profile_list(obs.OBSensorType.DEPTH_SENSOR)
-    for sw, sh in _DEPTH_PREFERRED:
+    for sw, sh in order:
         try:
             p = depth_list.get_video_stream_profile(sw, sh, obs.OBFormat.Y16, fps)
             cfg.enable_stream(p)
+            print(f"  depth: {sw}x{sh}@{fps}")
             return p
         except Exception:
             continue
