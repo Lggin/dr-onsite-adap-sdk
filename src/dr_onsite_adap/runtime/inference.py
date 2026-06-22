@@ -2,7 +2,6 @@ import os
 
 import cv2
 import torch
-from PIL import Image
 from rfdetr import RFDETRSegMedium
 
 from . import lean_postproc
@@ -27,12 +26,15 @@ class SegModel:
 
     def predict(self, bgr_frame, conf_threshold):
         rgb = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
-        pil_img = Image.fromarray(rgb)
+        # GPU 텐서(C,H,W,[0,1])로 직접 입력 → resize/normalize 가 GPU 에서 수행(전처리 가속).
+        # include_source_image=False 로 원본 이미지 D2H 복사 생략(SDK 는 source_image 미사용).
+        img = torch.from_numpy(rgb).to(self.device).permute(2, 0, 1).float().div_(255.0)
         # 사전선별 임계는 검출 임계 이하로 (결과 동일성 보장)
         lean_postproc.set_preselect(min(_PRESELECT_FLOOR, conf_threshold))
         with torch.no_grad():
             return self.model.predict(
-                pil_img,
+                img,
                 conf_threshold=conf_threshold,
                 device=self.device,
+                include_source_image=False,
             )
