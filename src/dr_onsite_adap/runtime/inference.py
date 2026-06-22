@@ -34,7 +34,7 @@ class SegModel:
         with torch.no_grad():
             return self.model.predict(
                 img,
-                conf_threshold=conf_threshold,
+                threshold=conf_threshold,
                 device=self.device,
                 include_source_image=False,
             )

@@ -36,7 +36,9 @@ DATA_DIR = _env_path("DEPAL_DATA_DIR", DEPAL_HOME / "data" / "active_learning_da
 # Detection weights must match NUM_CLASSES. 4 = Box/Tote/Wrap/Pallet.
 WEIGHTS_PATH = str(_env_path("DEPAL_WEIGHTS", WEIGHTS_DIR / "model.pth"))
 NUM_CLASSES = int(os.environ.get("DEPAL_NUM_CLASSES", "4"))
-CONF_THRES = float(os.environ.get("DEPAL_CONF_THRES", "0.4"))
+# 기본 0.5: 과거 conf_threshold 인자명 버그로 RF-DETR predict 가 항상 default 0.5 를
+# 적용해 왔다. 인자명 수정(threshold=) 시 실효 동작을 그대로 유지하려고 기본값을 0.5 로 둔다.
+CONF_THRES = float(os.environ.get("DEPAL_CONF_THRES", "0.5"))
 DEVICE = os.environ.get("DEPAL_DEVICE", "cpu")
 
 # Pallet is not a pick target — it is excluded from top-face/occlusion and
