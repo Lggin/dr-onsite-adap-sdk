@@ -22,6 +22,7 @@ from .cameras import load_camera_class, resolve_backend
 from .detect import build_detections_3d, draw_state, run_detection
 from .inference import SegModel
 from .labeler import SAMLabeler
+from .smoothing import DetectionSmoother
 from .viz import draw_hud, draw_styled_text
 from .viz3d import show_snapshot
 
@@ -142,6 +143,7 @@ def main():
     state_up_dir = None
     auto_triggered = False
     live_mode = False        # 'l' 토글: 매 프레임 자동 검출(실시간)
+    smoother = DetectionSmoother()   # 실시간 모드 깜빡임 방지(시간축 안정화)
     fps_ema = 0.0
     last_t = time.time()
     try:
@@ -165,11 +167,12 @@ def main():
             # First-frame auto trigger so the user sees a result without
             # having to press anything. Only fires once — after that the
             # user owns the overlay state via 'd' / 'c'.
-            # 실시간 모드면 매 프레임 검출. 아니면 첫 프레임만 자동 검출(이후 'd').
+            # 실시간 모드면 매 프레임 검출 + 시간축 안정화(임계 경계 깜빡임 방지).
             if live_mode:
-                detection_state = run_detection(
+                raw_state = run_detection(
                     model, color_raw, depth_m, intr, up_dir, h_img, w_img,
                 )
+                detection_state = smoother.update(raw_state)
                 state_intr = intr
                 state_up_dir = up_dir
             elif not auto_triggered:
@@ -225,6 +228,7 @@ def main():
                 state_up_dir = up_dir
             if key == ord("l"):
                 live_mode = not live_mode
+                smoother.reset()        # 트랙 초기화(켤/끌 때마다 새로 시작)
                 auto_triggered = True   # 첫프레임 자동검출 로직과 겹치지 않게
                 print("실시간 검출: " + ("ON" if live_mode else "OFF"))
             if key == ord("v") and detection_state is not None:
@@ -257,6 +261,7 @@ def main():
                 state_intr = None
                 state_up_dir = None
                 auto_triggered = False
+                smoother.reset()   # ROI 변경=좌표계 변경 → 트랙 무효
             if key == ord("t") and labeler is not None:
                 labeler.label_frame(color_raw)
     finally:
