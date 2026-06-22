@@ -81,11 +81,8 @@ class DetectionSmoother:
         pallets = self._step(self.pallet_tracks, state.get("pallets", []),
                             lambda p: p.get("center_2d"))
 
-        # 마스크 오버레이를 트랙 기준으로 재구성(픽 대상 + 팔레트).
+        # 픽 대상 마스크만 오버레이(팔레트 마스크는 칠하지 않음: 박스와 겹쳐 얼룩).
         mwc = [(d["mask"], d["color_bgr"]) for d in active]
-        pallet_bgr = config.CLASSES.get(config.PALLET_CID, (None, (130, 100, 50)))[1]
-        for p in pallets:
-            mwc.append((p["mask"], pallet_bgr))
 
         counts = defaultdict(int)
         for d in active:

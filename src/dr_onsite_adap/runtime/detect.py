@@ -53,7 +53,6 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img):
             continue
         name, color_bgr = config.CLASSES[cid]
         mask = masks[i]
-        masks_with_color.append((mask, color_bgr))
 
         # 팔레트: 픽 대상이 아니므로 top-face 추정/occlusion 필터를 건너뛴다.
         # (팔레트는 늘 물품에 가려져 occlusion 필터에 항상 걸려 버려질 것.)
@@ -67,6 +66,8 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img):
             counts[cid] += 1   # HUD 표시용
             continue
 
+        # 픽 대상 마스크만 오버레이(팔레트 마스크는 칠하지 않음: 박스와 겹쳐 얼룩이 됨)
+        masks_with_color.append((mask, color_bgr))
         item_count += 1   # 픽 대상 검출 (픽 성공 여부와 무관 — 남은 물품 카운트)
 
         res, reason = estimate_top_face(
