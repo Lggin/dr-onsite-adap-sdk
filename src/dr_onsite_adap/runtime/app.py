@@ -3,6 +3,7 @@
 
 키 안내:
   d  현재 화면에서 검출(다시) 실행
+  l  실시간 검출 모드 켜기/끄기 (매 프레임 자동 검출)
   v  마지막 검출 결과를 브라우저 3D로 보기
   c  화면 오버레이 지우기
   r  관심영역(ROI) 크롭 지정/해제 (드래그=지정, ESC=전체 화면)
@@ -104,8 +105,8 @@ def main():
         use_imu=config.USE_IMU,
     )
 
-    print("키: 'd' 검출(다시), 'v' 3D 보기, 'c' 오버레이 지우기, "
-          "'t' SAM 라벨링, 'r' 관심영역 지정/해제, 'q' 종료")
+    print("키: 'd' 검출(다시), 'l' 실시간 검출 ON/OFF, 'v' 3D 보기, "
+          "'c' 오버레이 지우기, 't' SAM 라벨링, 'r' 관심영역 지정/해제, 'q' 종료")
 
     # ROI(팔레트 영역): 검출/표시/라벨저장을 이 영역 크롭으로 한정. roi.json 에 저장돼
     # 다음 실행에도 유지. 'r' 로 다시 잡거나(드래그) ESC 로 해제(전체 프레임).
@@ -140,6 +141,7 @@ def main():
     state_intr = None        # intrinsics in effect when state was captured
     state_up_dir = None
     auto_triggered = False
+    live_mode = False        # 'l' 토글: 매 프레임 자동 검출(실시간)
     fps_ema = 0.0
     last_t = time.time()
     try:
@@ -163,7 +165,14 @@ def main():
             # First-frame auto trigger so the user sees a result without
             # having to press anything. Only fires once — after that the
             # user owns the overlay state via 'd' / 'c'.
-            if not auto_triggered:
+            # 실시간 모드면 매 프레임 검출. 아니면 첫 프레임만 자동 검출(이후 'd').
+            if live_mode:
+                detection_state = run_detection(
+                    model, color_raw, depth_m, intr, up_dir, h_img, w_img,
+                )
+                state_intr = intr
+                state_up_dir = up_dir
+            elif not auto_triggered:
                 detection_state = run_detection(
                     model, color_raw, depth_m, intr, up_dir, h_img, w_img,
                 )
@@ -184,15 +193,21 @@ def main():
                 f"up[{src}]=({up_dir[0]:+.2f},{up_dir[1]:+.2f},{up_dir[2]:+.2f})",
                 (10, h_img - 12), (200, 200, 255), scale=0.55, thickness=1,
             )
-            if detection_state is not None:
+            if live_mode and detection_state is not None:
+                inf_ms = detection_state["inference_time"] * 1000.0
+                status_text = (
+                    f"● 실시간 검출 ON  ({inf_ms:.0f}ms, {fps_ema:.0f}fps) "
+                    f"— 'l' 끄기  'v' 3D"
+                )
+            elif detection_state is not None:
                 age = t_now - detection_state["detect_time"]
                 inf_ms = detection_state["inference_time"] * 1000.0
                 status_text = (
                     f"마지막 검출: {age:4.1f}초 전 ({inf_ms:.0f}ms 소요) "
-                    f"— 'd' 다시  'v' 3D  'c' 지우기"
+                    f"— 'd' 다시  'l' 실시간  'v' 3D  'c' 지우기"
                 )
             else:
-                status_text = "검출 없음 — 'd' 를 누르세요"
+                status_text = "검출 없음 — 'd' 1회 검출  'l' 실시간 모드"
             draw_styled_text(
                 color, status_text,
                 (10, h_img - 32), (255, 220, 120), scale=0.55, thickness=1,
@@ -208,6 +223,10 @@ def main():
                 )
                 state_intr = intr
                 state_up_dir = up_dir
+            if key == ord("l"):
+                live_mode = not live_mode
+                auto_triggered = True   # 첫프레임 자동검출 로직과 겹치지 않게
+                print("실시간 검출: " + ("ON" if live_mode else "OFF"))
             if key == ord("v") and detection_state is not None:
                 dets = build_detections_3d(detection_state)
                 show_snapshot(dets, up_dir=state_up_dir)
