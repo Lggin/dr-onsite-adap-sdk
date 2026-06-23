@@ -25,6 +25,20 @@ from .viz import (
 )
 
 
+def _mask_centroid(mask):
+    M = cv2.moments(mask.astype(np.uint8))
+    if M["m00"] > 0:
+        return (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
+    return None
+
+
+def _median_depth(depth_m, mask, cfg):
+    """마스크 아래 유효 depth(미터) 중앙값 — 픽 순서(최상단=가장 가까움) 정렬용. 싼 연산."""
+    d = depth_m[mask]
+    d = d[(d > cfg.Z_MIN) & (d < cfg.Z_MAX)]
+    return float(np.median(d)) if d.size else float("inf")
+
+
 def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img):
     """Run the model + top-face estimation + mask-based occlusion once.
 
@@ -40,11 +54,10 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img):
     confidences = preds.confidence
     n = 0 if masks is None else len(masks)
 
-    masks_with_color = []   # (mask, bgr) — drawn every frame as overlay
-    collected = []          # detections that passed estimate_top_face
+    masks_with_color = []   # (mask, bgr) — 픽 대상 마스크(매 프레임 오버레이)
     fail_markers = []       # (image_pos, reason)
     pallets = []            # 팔레트 검출 (픽 대상 아님 — 존재/위치만)
-    item_count = 0          # 픽 대상(박스/토트/랩) 검출 수 (빈 팔레트 판정용)
+    pickables = []          # 픽 대상 검출(기하 전): {cid,name,color_bgr,mask,confidence}
     counts = defaultdict(int)
 
     for i in range(n):
@@ -54,56 +67,50 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img):
         name, color_bgr = config.CLASSES[cid]
         mask = masks[i]
 
-        # 팔레트: 픽 대상이 아니므로 top-face 추정/occlusion 필터를 건너뛴다.
-        # (팔레트는 늘 물품에 가려져 occlusion 필터에 항상 걸려 버려질 것.)
-        # 존재 여부 + 중심만 기록해 '빈 팔레트=완료' 신호와 위치 표시에 쓴다.
+        # 팔레트: 픽 대상이 아니므로 top-face/occlusion 건너뜀. 존재+중심만 기록
+        # ('빈 팔레트=완료' 신호 + 위치 표시). 마스크는 칠하지 않음(박스와 겹쳐 얼룩).
         if cid == config.PALLET_CID:
-            M = cv2.moments(mask.astype(np.uint8))
-            cen = ((int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
-                   if M["m00"] > 0 else None)
             pallets.append({"mask": mask, "confidence": float(confidences[i]),
-                            "center_2d": cen})
-            counts[cid] += 1   # HUD 표시용
+                            "center_2d": _mask_centroid(mask)})
+            counts[cid] += 1
             continue
 
-        # 픽 대상 마스크만 오버레이(팔레트 마스크는 칠하지 않음: 박스와 겹쳐 얼룩이 됨)
         masks_with_color.append((mask, color_bgr))
-        item_count += 1   # 픽 대상 검출 (픽 성공 여부와 무관 — 남은 물품 카운트)
+        counts[cid] += 1   # 검출 수(HUD) — 기하 성공 여부와 무관(남은 물품 카운트)
+        pickables.append({"cid": cid, "name": name, "color_bgr": color_bgr,
+                          "mask": mask, "confidence": float(confidences[i])})
 
-        res, reason = estimate_top_face(
-            mask, depth_m, intr, config, up_dir=up_dir,
-        )
+    item_count = len(pickables)
+
+    # 가려짐 필터: 마스크만 사용 → 기하 전에 후보 선별(self-hull 테스트).
+    occluded_idx = compute_occlusion_by_mask(pickables, config)
+    for oi in occluded_idx:
+        c = _mask_centroid(pickables[oi]["mask"])
+        if c is not None:
+            fail_markers.append((c, "occluded"))
+    candidates = [p for k, p in enumerate(pickables) if k not in occluded_idx]
+
+    # 픽 순서로 정렬: 최상단(카메라에 가장 가까움 = median depth 최소) 먼저.
+    candidates.sort(key=lambda p: _median_depth(depth_m, p["mask"], config))
+
+    # 기하(중점/장단축/길이/자세)는 '픽 대상' 상위 K개에만 — 라이브 FPS 핵심 최적화.
+    # (모든 객체에 매 프레임 돌리던 게 병목이었음.) GEOM_TARGETS<=0 이면 전부.
+    k_targets = config.GEOM_TARGETS if config.GEOM_TARGETS > 0 else len(candidates)
+    active = []
+    for p in candidates:
+        if len(active) >= k_targets:
+            break
+        res, reason = estimate_top_face(p["mask"], depth_m, intr, config, up_dir=up_dir)
         if res is None:
-            M = cv2.moments(mask.astype(np.uint8))
-            if M["m00"] > 0:
-                fail_markers.append((
-                    (int(M["m10"] / M["m00"]),
-                     int(M["m01"] / M["m00"])),
-                    reason,
-                ))
+            c = _mask_centroid(p["mask"])
+            if c is not None:
+                fail_markers.append((c, reason))
             continue
         u, v = res["center_2d"]
         if not (0 <= u < w_img and 0 <= v < h_img):
             fail_markers.append(((u, v), "off-screen"))
             continue
-
-        counts[cid] += 1
-        collected.append({
-            "orig_idx": i,
-            "cid": cid,
-            "name": name,
-            "color_bgr": color_bgr,
-            "mask": mask,
-            "confidence": float(confidences[i]),
-            "res": res,
-        })
-
-    # Mask-based occlusion (single-mask self-hull test).
-    occluded_idx = compute_occlusion_by_mask(collected, config)
-    for oi in occluded_idx:
-        u_oc, v_oc = collected[oi]["res"]["center_2d"]
-        fail_markers.append(((u_oc, v_oc), "occluded"))
-    active = [c for k, c in enumerate(collected) if k not in occluded_idx]
+        active.append({**p, "res": res})
 
     # 빈 팔레트 = 완료 신호: 팔레트는 보이는데 픽 대상이 하나도 없음.
     done = bool(pallets) and item_count == 0
@@ -111,6 +118,7 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img):
     return {
         "masks_with_color": masks_with_color,
         "active": active,
+        "pickables": pickables,
         "fail_markers": fail_markers,
         "pallets": pallets,
         "item_count": item_count,

@@ -14,7 +14,17 @@ run_detection() 의 state(dict)를 받아 표시용 state 를 돌려준다. 픽 
 import os
 from collections import defaultdict
 
+import cv2
+import numpy as np
+
 from .. import config
+
+
+def _centroid(mask):
+    M = cv2.moments(mask.astype(np.uint8))
+    if M["m00"] > 0:
+        return (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
+    return None
 
 KEEP_FRAMES = int(os.environ.get("DEPAL_SMOOTH_KEEP", "10"))   # 사라져도 유지할 프레임 수
 MIN_HITS = int(os.environ.get("DEPAL_SMOOTH_MIN_HITS", "1"))   # 표시 시작에 필요한 연속 검출 수
@@ -26,11 +36,13 @@ class DetectionSmoother:
         self.keep = keep_frames
         self.min_hits = min_hits
         self.match_d2 = match_dist * match_dist
-        self.tracks = []      # 픽 대상 트랙: {det, center, ttl, hits}
-        self.pallet_tracks = []  # 팔레트 트랙: {pallet, center, ttl, hits}
+        self.pick_tracks = []    # 표시용 픽 대상 검출(전체): 마스크 중심으로 추적
+        self.active_tracks = []  # 자세 계산된 타깃: res 중심으로 추적
+        self.pallet_tracks = []  # 팔레트: center_2d 로 추적
 
     def reset(self):
-        self.tracks = []
+        self.pick_tracks = []
+        self.active_tracks = []
         self.pallet_tracks = []
 
     @staticmethod
@@ -76,26 +88,30 @@ class DetectionSmoother:
         return [t["item"] for t in tracks if t["hits"] >= self.min_hits]
 
     def update(self, state):
-        active = self._step(self.tracks, state["active"],
+        # 표시 마스크(전체 픽 대상)는 마스크 중심으로, 자세 타깃은 res 중심으로 각각 안정화.
+        picks = self._step(self.pick_tracks, state.get("pickables", []),
+                           lambda p: _centroid(p["mask"]))
+        active = self._step(self.active_tracks, state.get("active", []),
                             lambda d: d["res"]["center_2d"])
         pallets = self._step(self.pallet_tracks, state.get("pallets", []),
                             lambda p: p.get("center_2d"))
 
         # 픽 대상 마스크만 오버레이(팔레트 마스크는 칠하지 않음: 박스와 겹쳐 얼룩).
-        mwc = [(d["mask"], d["color_bgr"]) for d in active]
+        mwc = [(p["mask"], p["color_bgr"]) for p in picks]
 
         counts = defaultdict(int)
-        for d in active:
-            counts[d["cid"]] += 1
+        for p in picks:
+            counts[p["cid"]] += 1
         for _ in pallets:
             counts[config.PALLET_CID] += 1
 
         new_state = dict(state)
+        new_state["pickables"] = picks
         new_state["active"] = active
         new_state["pallets"] = pallets
         new_state["masks_with_color"] = mwc
         new_state["fail_markers"] = []   # 안정화 모드에선 전이성 실패마커는 숨김
-        new_state["item_count"] = len(active)
+        new_state["item_count"] = len(picks)
         new_state["counts"] = dict(counts)
-        new_state["done"] = bool(pallets) and len(active) == 0
+        new_state["done"] = bool(pallets) and len(picks) == 0
         return new_state
