@@ -21,6 +21,7 @@ import cv2
 import numpy as np
 
 from .. import config
+from .._logging import setup_cli_logging
 from . import cameras
 from .detect import build_detections_3d, draw_state, run_detection
 from .smoothing import DetectionSmoother
@@ -706,6 +707,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
 def main():
+    setup_cli_logging()
     if not (config.WEIGHTS_PATH and os.path.isfile(config.WEIGHTS_PATH)):
         print(f"⚠ 가중치 없음: {config.WEIGHTS_PATH} — 환경변수 DEPAL_WEIGHTS 확인")
     app = QtWidgets.QApplication(sys.argv)

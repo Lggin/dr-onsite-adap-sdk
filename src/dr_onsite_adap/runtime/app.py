@@ -18,6 +18,7 @@ import time
 import cv2
 
 from .. import config
+from .._logging import setup_cli_logging
 from .cameras import load_camera_class, resolve_backend
 from .detect import build_detections_3d, draw_state, run_detection
 from .inference import SegModel
@@ -84,6 +85,7 @@ def _save_up(path, vec):
 
 
 def main():
+    setup_cli_logging()
     if not os.path.isfile(config.WEIGHTS_PATH):
         sys.exit(
             f"가중치 파일을 찾을 수 없습니다: {config.WEIGHTS_PATH}\n"

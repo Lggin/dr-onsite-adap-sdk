@@ -13,6 +13,7 @@ applies to COLOR only. Depth is picked from the device's native modes and
 the AlignFilter resamples it to color's resolution.
 """
 
+import logging
 import os
 
 import cv2
@@ -20,6 +21,8 @@ import numpy as np
 import pyorbbecsdk as obs
 
 from ...exceptions import CameraError
+
+logger = logging.getLogger(__name__)
 
 
 # Femto Bolt depth (K4A ToF) native modes, in preference order.
@@ -63,7 +66,7 @@ def _enable_color(pipeline, cfg, width, height, fps):
         try:
             p = color_list.get_video_stream_profile(width, height, fmt, fps)
             cfg.enable_stream(p)
-            print(f"  color: {width}x{height}@{fps} {fmt_name}")
+            logger.info("color: %dx%d@%d %s", width, height, fps, fmt_name)
             return p, decode_kind
         except Exception:
             continue
@@ -88,13 +91,13 @@ def _enable_depth(pipeline, cfg, fps, prefer=None):
             pw, ph = (int(v) for v in prefer.lower().split("x"))
             order = [(pw, ph)] + [m for m in order if m != (pw, ph)]
         except Exception:
-            print(f"  ⚠️ DEPAL_DEPTH_MODE='{prefer}' 형식 오류(WxH 예: 320x288), 기본 사용")
+            logger.warning("DEPAL_DEPTH_MODE='%s' 형식 오류(WxH 예: 320x288), 기본 사용", prefer)
     depth_list = pipeline.get_stream_profile_list(obs.OBSensorType.DEPTH_SENSOR)
     for sw, sh in order:
         try:
             p = depth_list.get_video_stream_profile(sw, sh, obs.OBFormat.Y16, fps)
             cfg.enable_stream(p)
-            print(f"  depth: {sw}x{sh}@{fps}")
+            logger.info("depth: %dx%d@%d", sw, sh, fps)
             return p
         except Exception:
             continue

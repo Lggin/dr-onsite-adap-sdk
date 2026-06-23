@@ -8,6 +8,8 @@ Two halves:
     build a replay-mixed dataset, LoRA fine-tune, merge, evaluate.
 """
 
+import logging as _logging_mod
+
 from ._version import __version__
 from .exceptions import (
     DrOnsiteError,
@@ -28,3 +30,7 @@ __all__ = [
     "ModelError",
     "PipelineError",
 ]
+
+# 라이브러리 위생: 임포트만으로는 로그를 출력하지 않는다(임베딩 앱이 핸들러 제어).
+# CLI/앱 진입점은 dr_onsite_adap._logging.setup_cli_logging() 으로 stdout 출력을 켠다.
+_logging_mod.getLogger("dr_onsite_adap").addHandler(_logging_mod.NullHandler())

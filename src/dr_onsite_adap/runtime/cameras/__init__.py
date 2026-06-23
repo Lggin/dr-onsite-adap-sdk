@@ -4,9 +4,12 @@ resolve_backend("auto") probes for a connected RealSense or Orbbec device
 and returns whichever is present. load_camera_class(backend) returns the
 matching stream class (lazy import so the unused SDK never has to load).
 """
+import logging
 import sys
 
 from ...exceptions import ValidationError
+
+logger = logging.getLogger(__name__)
 
 
 def _count_realsense():
@@ -32,10 +35,10 @@ def resolve_backend(name):
         n_rs = _count_realsense()
         n_ob = _count_orbbec()
         if n_rs > 0:
-            print(f"Auto-detected camera: realsense ({n_rs} device)")
+            logger.info("Auto-detected camera: realsense (%d device)", n_rs)
             return "realsense"
         if n_ob > 0:
-            print(f"Auto-detected camera: orbbec ({n_ob} device)")
+            logger.info("Auto-detected camera: orbbec (%d device)", n_ob)
             return "orbbec"
         sys.exit("No connected RealSense or Orbbec camera found.")
     elif name in ("realsense", "orbbec"):
