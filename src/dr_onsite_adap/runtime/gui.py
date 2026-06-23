@@ -63,6 +63,24 @@ class _Loader(QThread):
         self.ready.emit(model, labeler)
 
 
+class _ReloadThread(QThread):
+    """학습·병합으로 만든 새 가중치를 백그라운드로 로드(재시작 없이 교체)."""
+    done = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, path):
+        super().__init__()
+        self._path = path
+
+    def run(self):
+        try:
+            from .inference import SegModel
+            m = SegModel(self._path, config.NUM_CLASSES, config.DEVICE)
+            self.done.emit(m)
+        except Exception as e:  # noqa: BLE001
+            self.failed.emit(f"가중치 로드 실패: {e}")
+
+
 class _CameraThread(QThread):
     """카메라 read() 루프. 최신 프레임을 frame 시그널로 보낸다."""
     frame = Signal(object, object, object, object)   # color, depth, intr, up_dir
@@ -263,8 +281,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_up = QtWidgets.QPushButton("🧭  중력 재측정")
         self.btn_up.setToolTip("바닥/팔레트 평면으로 up_dir(중력 벡터) 재측정 — 카메라 각도 바뀌었을 때")
         self.btn_up.clicked.connect(self.do_measure_up)
+        self.btn_reload = QtWidgets.QPushButton("♻  새 가중치 로드")
+        self.btn_reload.setToolTip("학습·병합으로 만든 새 가중치(DEPAL_FINAL)를 재시작 없이 적용 — 학습 전/후 비교용")
+        self.btn_reload.clicked.connect(self.do_reload)
         for b in (self.btn_detect, self.btn_live, self.btn_3d, self.btn_roi,
-                  self.btn_roi_clear, self.btn_label, self.btn_up, self.btn_clear):
+                  self.btn_roi_clear, self.btn_label, self.btn_up, self.btn_reload,
+                  self.btn_clear):
             b.setMinimumHeight(40)
             b.setEnabled(False)
             side.addWidget(b)
@@ -308,7 +330,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.model = model
         self.labeler = labeler
         for b in (self.btn_detect, self.btn_live, self.btn_3d, self.btn_roi,
-                  self.btn_roi_clear, self.btn_up, self.btn_clear):
+                  self.btn_roi_clear, self.btn_up, self.btn_reload, self.btn_clear):
             b.setEnabled(True)
         self.btn_label.setEnabled(labeler is not None)
         self._set_status("준비 완료 — '검출' 또는 '실시간 검출'을 누르세요")
@@ -468,6 +490,33 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_status(
             f"중력 재측정 완료: ({up[0]:+.3f}, {up[1]:+.3f}, {up[2]:+.3f}) · "
             f"기울기 {tilt:.1f}° · 저장됨(다음 실행에도 적용)")
+
+    # ── 새 가중치 로드 (학습 후 재시작 없이 교체) ──
+    def do_reload(self):
+        path = config.FINAL_WEIGHTS
+        if not (path and os.path.isfile(path)):
+            self._set_status(f"⚠ 새 가중치가 없습니다: {path} (학습·병합 먼저)")
+            return
+        # VRAM 스파이크 방지: 옛 모델을 먼저 비우면 실시간 검출은 로딩 동안 잠시 멈춤(자동 재개).
+        self.model = None
+        self.state = None
+        self.smoother.reset()
+        self.btn_reload.setEnabled(False)
+        self._set_status(f"새 가중치 로딩 중… {os.path.basename(path)}")
+        self._reload = _ReloadThread(path)
+        self._reload.done.connect(self._on_reloaded)
+        self._reload.failed.connect(self._on_reload_fail)
+        self._reload.start()
+
+    def _on_reloaded(self, model):
+        self.model = model
+        self.smoother.reset()
+        self.btn_reload.setEnabled(True)
+        self._set_status(f"✅ 새 가중치 적용됨 — {os.path.basename(config.FINAL_WEIGHTS)}")
+
+    def _on_reload_fail(self, msg):
+        self.btn_reload.setEnabled(True)
+        self._set_status("⚠ " + msg)
 
     # ── ROI ──
     def _on_roi_button(self, checked):
