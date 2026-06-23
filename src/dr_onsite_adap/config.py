@@ -128,10 +128,6 @@ else:
 # Reject a plane whose normal makes a larger angle than acos(this) with up.
 TOP_PLANE_MIN_ALIGNMENT = float(os.environ.get("DEPAL_TOP_PLANE_MIN_ALIGN", "0.7"))
 
-# 기하(중점/장단축/길이) 계산을 상위 K개 '픽 대상'에만 수행(라이브 FPS 최적화).
-# 후보는 가려짐 필터 후 최상단(카메라에 가장 가까움=median depth 최소) 순. 0 이하면 전부 계산.
-GEOM_TARGETS = int(os.environ.get("DEPAL_GEOM_TARGETS", "1"))
-
 # Mask-based occlusion: drop a detection whose visible mask area is below
 # (1 - this) of its own convex hull area. Single-mask test (no cross-mask).
 OCCLUSION_HIDDEN_FRACTION = float(os.environ.get("DEPAL_OCCLUSION_FRAC", "0.5"))
