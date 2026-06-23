@@ -171,6 +171,7 @@ def main():
             if live_mode:
                 raw_state = run_detection(
                     model, color_raw, depth_m, intr, up_dir, h_img, w_img,
+                    with_pointcloud=False,   # 점구름은 3D 보기용 — 라이브선 생략(가속)
                 )
                 detection_state = smoother.update(raw_state)
                 state_intr = intr

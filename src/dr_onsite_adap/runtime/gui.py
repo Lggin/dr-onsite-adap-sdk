@@ -129,15 +129,17 @@ class _DetectThread(QThread):
     done = Signal(object, object)   # (state, intr)
     failed = Signal(str)
 
-    def __init__(self, model, color, depth, intr, up):
+    def __init__(self, model, color, depth, intr, up, with_pointcloud=True):
         super().__init__()
         self._args = (model, color, depth, intr, up)
+        self._wp = with_pointcloud
 
     def run(self):
         model, color, depth, intr, up = self._args
         try:
             h, w = color.shape[:2]
-            state = run_detection(model, color, depth, intr, up, h, w)
+            state = run_detection(model, color, depth, intr, up, h, w,
+                                  with_pointcloud=self._wp)
             self.done.emit(state, intr)
         except Exception as e:  # noqa: BLE001
             self.failed.emit(f"검출 실패: {e}")
@@ -410,8 +412,9 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._busy = True
         color, depth, intr, up = self.last_pack
+        # 라이브(연속)에선 3D 점구름 생략해 가속, 단발 검출에선 계산('v' 3D 보기용).
         self.detect_thread = _DetectThread(self.model, color.copy(), depth.copy(),
-                                           intr, up)
+                                           intr, up, with_pointcloud=not self.live_mode)
         self.detect_thread.done.connect(self._on_detect_done)
         self.detect_thread.failed.connect(self._on_detect_fail)
         self.detect_thread.start()

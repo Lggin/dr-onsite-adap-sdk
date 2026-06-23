@@ -25,11 +25,15 @@ from .viz import (
 )
 
 
-def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img):
+def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
+                  with_pointcloud=True):
     """Run the model + top-face estimation + mask-based occlusion once.
 
     Returns a state dict that the main loop overlays onto every frame
     until the next detection trigger.
+
+    with_pointcloud: 3D 스냅샷용 점구름까지 계산할지. 라이브(매 프레임)에선 False 로
+    꺼서 비용을 줄인다(픽 자세에는 영향 없음). 단발 'd' / 3D 보기 흐름에선 True.
     """
     t0 = time.time()
     preds = model.predict(color, conf_threshold=config.CONF_THRES)
@@ -72,6 +76,7 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img):
 
         res, reason = estimate_top_face(
             mask, depth_m, intr, config, up_dir=up_dir,
+            with_pointcloud=with_pointcloud,
         )
         if res is None:
             M = cv2.moments(mask.astype(np.uint8))

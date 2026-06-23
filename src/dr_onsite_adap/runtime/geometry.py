@@ -3,7 +3,7 @@ import numpy as np
 
 
 def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
-                      top_layer_band=None):
+                      top_layer_band=None, with_pointcloud=True):
     """Return (result_dict, None) on success or (None, reason_str) on failure.
 
     Algorithm (plane-space minAreaRect, height-along-up):
@@ -182,13 +182,18 @@ def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
     if long_mm < 1e-3 or short_mm < 1e-3:
         return None, "degenerate"
 
-    # ─── 8. Snapshot point clouds (height-based 3-way split) ───
-    all_pts_f32 = valid_pts.astype(np.float32)
-    too_near = heights < lo_cutoff - 1e-9     # above the LO band  → red
-    too_far = heights > hi_cutoff + 1e-9      # below the HI band  → grey
-    near_pts = all_pts_f32[too_near]
-    in_pts = all_pts_f32[near_top]
-    out_pts = all_pts_f32[too_far]
+    # ─── 8. Snapshot point clouds (3D 보기 전용) ───
+    # 픽 자세(중심/축/길이)는 위에서 이미 확정됐고, 이 점구름은 'v' 3D 스냅샷에만 쓰인다.
+    # 매 프레임 2만 점을 3분할/복사하는 비용이 커서, 라이브 경로는 with_pointcloud=False 로
+    # 생략한다(자세 결과에는 전혀 영향 없음 — 자세 계산 뒤 단계).
+    if with_pointcloud:
+        all_pts_f32 = valid_pts.astype(np.float32)
+        near_pts = all_pts_f32[heights < lo_cutoff - 1e-9]   # LO 위 → red
+        in_pts = all_pts_f32[near_top]
+        out_pts = all_pts_f32[heights > hi_cutoff + 1e-9]    # HI 아래 → grey
+    else:
+        _empty = np.empty((0, 3), dtype=np.float32)
+        near_pts = in_pts = out_pts = _empty
 
     return {
         "center_3d": centroid.astype(np.float32),
