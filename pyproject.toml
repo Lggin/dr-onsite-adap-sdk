@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dr-onsite-adap"
-version = "0.1.0"
+dynamic = ["version"]   # 버전은 src/dr_onsite_adap/_version.py 단일 소스에서 읽음
 description = "Depalletizing vision: RGB-D top-face pick-pose detection + active-learning training loop"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -44,6 +44,9 @@ dr-onsite-merge = "dr_onsite_adap.pipeline.merge:main"
 dr-onsite-eval = "dr_onsite_adap.pipeline.eval:main"
 dr-onsite-dataset = "dr_onsite_adap.pipeline.dataset:main"
 dr-onsite-round = "dr_onsite_adap.pipeline.round:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "dr_onsite_adap._version.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
