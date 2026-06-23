@@ -23,6 +23,7 @@ import numpy as np
 from .. import config
 from . import cameras
 from .detect import build_detections_3d, draw_state, run_detection
+from .smoothing import DetectionSmoother
 from .geometry import estimate_up_dir
 from .viz3d import show_snapshot
 from .app import _apply_roi, _load_roi, _save_roi, _load_up, _save_up
@@ -216,6 +217,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._fps = 0.0
         self._last_t = time.time()
         self._busy = False
+        self.live_mode = False               # 실시간 연속 검출 토글
+        self.smoother = DetectionSmoother()   # 실시간 깜빡임 방지(시간축 안정화)
 
         self._build_ui()
         self._refresh_camera_list()
@@ -241,6 +244,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_detect = QtWidgets.QPushButton("▶  검출")
         self.btn_detect.setShortcut("d")
         self.btn_detect.clicked.connect(self.do_detect)
+        self.btn_live = QtWidgets.QPushButton("▶▶  실시간 검출")
+        self.btn_live.setCheckable(True)
+        self.btn_live.setShortcut("l")
+        self.btn_live.setToolTip("매 프레임 연속 검출(깜빡임 방지 적용). 다시 누르면 끔.")
+        self.btn_live.toggled.connect(self._toggle_live)
         self.btn_3d = QtWidgets.QPushButton("🧊  3D 보기")
         self.btn_3d.clicked.connect(self.do_3d)
         self.btn_roi = QtWidgets.QPushButton("▭  ROI 지정")
@@ -255,8 +263,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_up = QtWidgets.QPushButton("🧭  중력 재측정")
         self.btn_up.setToolTip("바닥/팔레트 평면으로 up_dir(중력 벡터) 재측정 — 카메라 각도 바뀌었을 때")
         self.btn_up.clicked.connect(self.do_measure_up)
-        for b in (self.btn_detect, self.btn_3d, self.btn_roi, self.btn_roi_clear,
-                  self.btn_label, self.btn_up, self.btn_clear):
+        for b in (self.btn_detect, self.btn_live, self.btn_3d, self.btn_roi,
+                  self.btn_roi_clear, self.btn_label, self.btn_up, self.btn_clear):
             b.setMinimumHeight(40)
             b.setEnabled(False)
             side.addWidget(b)
@@ -299,11 +307,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_model_ready(self, model, labeler):
         self.model = model
         self.labeler = labeler
-        for b in (self.btn_detect, self.btn_3d, self.btn_roi, self.btn_roi_clear,
-                  self.btn_up, self.btn_clear):
+        for b in (self.btn_detect, self.btn_live, self.btn_3d, self.btn_roi,
+                  self.btn_roi_clear, self.btn_up, self.btn_clear):
             b.setEnabled(True)
         self.btn_label.setEnabled(labeler is not None)
-        self._set_status("준비 완료 — '검출'을 누르세요")
+        self._set_status("준비 완료 — '검출' 또는 '실시간 검출'을 누르세요")
 
     # ── 카메라 ──
     def _refresh_camera_list(self):
@@ -335,6 +343,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_camera_changed(self, _idx):
         self.state = None
+        self.smoother.reset()
         self._start_camera(self._current_serial())
         self._set_status(f"카메라 전환: {self._current_serial() or '자동'}")
 
@@ -344,6 +353,10 @@ class MainWindow(QtWidgets.QMainWindow):
         up_dir = up if up is not None else (self.measured_up or config.UP_DIR_CAMERA_FRAME)
         self.last_pack = (color_r, depth_r, intr_r, up_dir)
         self.last_color_raw = color_r.copy()
+
+        # 실시간 모드: 직전 검출이 끝났으면 이번 프레임으로 다음 검출을 건다(1개씩 연속).
+        if self.live_mode and not self._busy and self.model is not None:
+            self._kick_detect()
 
         now = time.time()
         dt = max(now - self._last_t, 1e-3)
@@ -369,12 +382,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video.setPixmap(pm)
 
     # ── 검출 ──
-    def do_detect(self):
+    def _kick_detect(self):
+        """현재 프레임으로 검출 1회를 백그라운드로 시작. 진행 중(busy)이면 무시."""
         if self.model is None or self.last_pack is None or self._busy:
             return
         self._busy = True
-        self.btn_detect.setEnabled(False)
-        self._set_status("검출 중…")
         color, depth, intr, up = self.last_pack
         self.detect_thread = _DetectThread(self.model, color.copy(), depth.copy(),
                                            intr, up)
@@ -382,14 +394,33 @@ class MainWindow(QtWidgets.QMainWindow):
         self.detect_thread.failed.connect(self._on_detect_fail)
         self.detect_thread.start()
 
+    def do_detect(self):
+        if self.model is None or self.last_pack is None or self._busy:
+            return
+        self.btn_detect.setEnabled(False)
+        self._set_status("검출 중…")
+        self._kick_detect()
+
+    def _toggle_live(self, checked):
+        self.live_mode = checked
+        self.smoother.reset()
+        self.btn_live.setText("⏸  실시간 끄기" if checked else "▶▶  실시간 검출")
+        if checked:
+            self._set_status("● 실시간 검출 ON")
+            self._kick_detect()          # 즉시 시작(이후 프레임마다 자동 연속)
+        else:
+            self._set_status("실시간 검출 OFF")
+
     def _on_detect_done(self, state, intr):
-        self.state = state
+        # 실시간 모드면 시간축 안정화(깜빡임 방지) 적용.
+        self.state = self.smoother.update(state) if self.live_mode else state
         self.state_intr = intr
         self.state_up = self.last_pack[3] if self.last_pack else None
         self._busy = False
         self.btn_detect.setEnabled(True)
-        self._fill_table(state)
-        self._set_status("검출 완료")
+        self._fill_table(self.state)
+        if not self.live_mode:
+            self._set_status("검출 완료")
 
     def _on_detect_fail(self, msg):
         self._busy = False
@@ -433,6 +464,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.measured_up = up
         _save_up(config.UP_PATH, up)
         self.state = None     # up 이 바뀌었으니 재검출 필요
+        self.smoother.reset()
         self._set_status(
             f"중력 재측정 완료: ({up[0]:+.3f}, {up[1]:+.3f}, {up[2]:+.3f}) · "
             f"기울기 {tilt:.1f}° · 저장됨(다음 실행에도 적용)")
@@ -450,12 +482,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.roi = roi if roi else None
         _save_roi(config.ROI_PATH, self.roi)
         self.state = None
+        self.smoother.reset()
         self._set_status(f"ROI: {self.roi if self.roi else '전체 화면'}")
 
     def _clear_roi(self):
         self.roi = None
         _save_roi(config.ROI_PATH, None)
         self.state = None
+        self.smoother.reset()
         self._set_status("ROI 해제 (전체 화면)")
 
     # ── 라벨링 (cv2 라벨러 재사용; 카메라 잠시 멈춤) ──
@@ -474,6 +508,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _clear_overlay(self):
         self.state = None
+        self.smoother.reset()
         self.table.setRowCount(0)
         self._set_status("오버레이 지움")
 
