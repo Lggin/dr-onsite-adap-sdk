@@ -19,6 +19,8 @@ import cv2
 import numpy as np
 import pyorbbecsdk as obs
 
+from ...exceptions import CameraError
+
 
 # Femto Bolt depth (K4A ToF) native modes, in preference order.
 _DEPTH_PREFERRED = [(640, 576), (512, 512), (320, 288), (1024, 1024)]
@@ -65,9 +67,10 @@ def _enable_color(pipeline, cfg, width, height, fps):
             return p, decode_kind
         except Exception:
             continue
-    raise RuntimeError(
-        f"Femto Bolt color: {width}x{height}@{fps} not available in BGR/BGRA/RGB/MJPG."
-    )
+    raise CameraError(
+        f"Femto Bolt color {width}x{height}@{fps} 를 BGR/BGRA/RGB/MJPG 로 열 수 없습니다. "
+        f"DEPAL_CAM_WIDTH/HEIGHT/FPS 를 장치 지원 모드로 맞추세요.",
+        error_code="E1001")
 
 
 def _enable_depth(pipeline, cfg, fps, prefer=None):
@@ -142,9 +145,10 @@ def _open_pipeline(serial, index):
         if dev is None:
             avail = [dl.get_device_serial_number_by_index(i)
                      for i in range(dl.get_count())]
-            raise RuntimeError(
+            raise CameraError(
                 f"DEPAL_CAMERA_SERIAL '{serial}' 카메라를 찾을 수 없습니다. "
-                f"연결된 시리얼: {avail}")
+                f"연결된 시리얼: {avail}",
+                error_code="E1002")
         return obs.Pipeline(dev), ctx
     return obs.Pipeline(dl.get_device_by_index(int(index))), ctx
 

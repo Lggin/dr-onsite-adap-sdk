@@ -25,6 +25,7 @@ from rfdetr import RFDETRSegMedium
 from peft import LoraConfig, get_peft_model
 
 from .. import config
+from ..exceptions import PipelineError
 
 AUG_CONFIG = {
     "HorizontalFlip": {"p": 0.5},
@@ -64,7 +65,10 @@ def _make_custom_fit(original_fit):
         elif hasattr(lightning_module, "net"):
             inner_model = lightning_module.net
         else:
-            raise RuntimeError("inner model not found on the Lightning module")
+            raise PipelineError(
+                "Lightning 모듈에서 inner model(model/net 속성)을 찾지 못했습니다. "
+                "rfdetr 버전이 예상과 다를 수 있습니다.",
+                error_code="E2001")
 
         lora_cfg = LoraConfig(
             r=config.LORA_R,

@@ -17,6 +17,8 @@ import cv2
 import numpy as np
 from segment_anything import sam_model_registry, SamPredictor
 
+from ..exceptions import ValidationError
+
 
 class SAMLabeler:
     """Owns the SAM model + per-session UI state. label_frame() runs one
@@ -27,10 +29,10 @@ class SAMLabeler:
     def __init__(self, sam_checkpoint, save_dir, classes,
                  sam_type="vit_b", device="cpu"):
         if not os.path.isfile(sam_checkpoint):
-            raise FileNotFoundError(
-                f"SAM checkpoint not found: {sam_checkpoint}. "
-                f"Set DEPAL_SAM_WEIGHTS to the .pth path."
-            )
+            raise ValidationError(
+                f"SAM 체크포인트를 찾을 수 없습니다: {sam_checkpoint}. "
+                f"DEPAL_SAM_WEIGHTS 에 .pth 경로를 지정하세요.",
+                error_code="E3002")
         os.makedirs(save_dir, exist_ok=True)
         self.save_dir = save_dir
         self.classes = classes

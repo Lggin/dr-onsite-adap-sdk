@@ -5,6 +5,7 @@ import torch
 from rfdetr import RFDETRSegMedium
 
 from . import lean_postproc
+from ..exceptions import ModelError
 
 # lean 후처리 사전선별 floor. 운영 검출 임계 이하여야 결과가 baseline 과 동일.
 _PRESELECT_FLOOR = float(os.environ.get("DEPAL_MASK_PRESELECT", "0.05"))
@@ -13,11 +14,17 @@ _PRESELECT_FLOOR = float(os.environ.get("DEPAL_MASK_PRESELECT", "0.05"))
 class SegModel:
     def __init__(self, weights_path, num_classes, device):
         print(f"Loading RFDETRSegMedium ({device}) ← {weights_path}")
-        self.model = RFDETRSegMedium(
-            num_classes=num_classes,
-            pretrain_weights=weights_path,
-            device=device,
-        )
+        try:
+            self.model = RFDETRSegMedium(
+                num_classes=num_classes,
+                pretrain_weights=weights_path,
+                device=device,
+            )
+        except Exception as e:  # 내부(torch/rfdetr) 예외를 SDK 예외로 wrapping
+            raise ModelError(
+                f"검출 모델 로드 실패: {weights_path} (num_classes={num_classes}). "
+                f"DEPAL_WEIGHTS 경로와 DEPAL_NUM_CLASSES 가 가중치와 맞는지 확인하세요. ({e})",
+                error_code="E5001") from e
         self.model.optimize_for_inference()
         self.device = device
         # 마스크 후처리를 lean 버전으로 교체 (살아남는 마스크만 업샘플 → 후처리 ~20ms 절감)

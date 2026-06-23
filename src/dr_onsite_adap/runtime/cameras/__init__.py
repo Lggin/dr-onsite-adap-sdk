@@ -6,6 +6,8 @@ matching stream class (lazy import so the unused SDK never has to load).
 """
 import sys
 
+from ...exceptions import ValidationError
+
 
 def _count_realsense():
     try:
@@ -57,7 +59,9 @@ def load_camera_class(backend):
     if backend == "orbbec":
         from .orbbec import FemtoBoltStream
         return FemtoBoltStream
-    raise ValueError(backend)
+    raise ValidationError(
+        f"알 수 없는 카메라 backend: {backend!r}. 'realsense' 또는 'orbbec' 여야 합니다.",
+        error_code="E3001")
 
 
 def list_orbbec_serials():
