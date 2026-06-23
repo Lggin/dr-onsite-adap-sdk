@@ -53,23 +53,21 @@ def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
     valid = (depths > cfg.Z_MIN) & (depths < cfg.Z_MAX)
     if int(valid.sum()) < cfg.MIN_PLANE_INLIERS:
         return None, "few depth"
-    valid_depths = depths[valid]
-    valid_xs = xs[valid]
-    valid_ys = ys[valid]
-    valid_X = (valid_xs - cx) * valid_depths / fx
-    valid_Y = (valid_ys - cy) * valid_depths / fy
-    valid_pts = np.stack([valid_X, valid_Y, valid_depths],
-                         axis=1).astype(np.float64)
+    vz = depths[valid].astype(np.float64)
+    vxi = xs[valid]      # 정수 픽셀 좌표 (인덱싱 + 역투영용)
+    vyi = ys[valid]
 
     # ─── 3. Per-point height along up_dir ───
     if up_dir is None:
         up_dir = cfg.UP_DIR_CAMERA_FRAME
     up_arr = np.asarray(up_dir, dtype=np.float64)
     up_arr = up_arr / np.linalg.norm(up_arr)
-    # Sign convention: smaller value = higher up. (Equivalent to camera
-    # depth when up_dir = (0,0,-1), so the same LO/HI percentile labels
-    # still mean "topmost".)
-    heights = -(valid_pts @ up_arr)
+    # heights = -(X*ux + Y*uy + Z*uz),  X=(x-cx)*Z/fx, Y=(y-cy)*Z/fy, Z=depth.
+    # 전체 3D 점(valid_pts)을 만들지 않고 픽셀좌표에서 직접 계산 — 라이브 비용의 큰 부분 제거.
+    # (값 동일. 부호 규약: 작을수록 위. up=(0,0,-1)이면 카메라 depth 와 같아 LO/HI 라벨 그대로.)
+    heights = -(((vxi - cx) / fx * up_arr[0]
+                 + (vyi - cy) / fy * up_arr[1]
+                 + up_arr[2]) * vz)
 
     # ─── 4. Trimmed-median height → plane location ───
     lo_cutoff = float(np.percentile(heights, cfg.TOP_DEPTH_PERCENTILE_LO))
@@ -89,7 +87,7 @@ def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
     src_contour = contour
     if int(on_top.sum()) >= cfg.MIN_PLANE_INLIERS:
         top_img = np.zeros(mask.shape[:2], dtype=np.uint8)
-        top_img[valid_ys[on_top], valid_xs[on_top]] = 255
+        top_img[vyi[on_top], vxi[on_top]] = 255
         top_img = cv2.morphologyEx(
             top_img, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
         tcnts, _ = cv2.findContours(
@@ -99,9 +97,11 @@ def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
             if float(cv2.contourArea(tc)) >= 1.0:
                 src_contour = tc
 
-    # Anchor = the actual 3D point closest in height to h_top
+    # Anchor = the actual 3D point closest in height to h_top (그 한 점만 역투영)
     anchor_idx = int(np.argmin(np.abs(heights - h_top)))
-    P_top = valid_pts[anchor_idx]
+    za = float(vz[anchor_idx])
+    P_top = np.array([(vxi[anchor_idx] - cx) * za / fx,
+                      (vyi[anchor_idx] - cy) * za / fy, za], dtype=np.float64)
     d_plane = -float(up_arr @ P_top)   # plane: up_arr · P + d_plane = 0
 
     # In-plane 2D basis (e1, e2) — orthonormal, both perpendicular to up.
@@ -147,8 +147,11 @@ def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
 
     trim = getattr(cfg, "TOP_FACE_TRIM_PCT", 1.0)
     if int(on_top.sum()) >= cfg.MIN_PLANE_INLIERS:
-        # 실제 윗면 점들(채워진 영역)을 평면 좌표로
-        top_rel = valid_pts[on_top] - P_top
+        # 실제 윗면 점들만 역투영해 평면 좌표로 (전체가 아닌 윗면 부분집합).
+        zt = vz[on_top]
+        top_pts = np.stack([(vxi[on_top] - cx) * zt / fx,
+                            (vyi[on_top] - cy) * zt / fy, zt], axis=1)
+        top_rel = top_pts - P_top
         pts2 = np.stack([top_rel @ e1, top_rel @ e2], axis=1)
     else:
         pts2 = plane_pts.astype(np.float64)   # 폴백: ray-projected contour
@@ -187,7 +190,9 @@ def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
     # 매 프레임 2만 점을 3분할/복사하는 비용이 커서, 라이브 경로는 with_pointcloud=False 로
     # 생략한다(자세 결과에는 전혀 영향 없음 — 자세 계산 뒤 단계).
     if with_pointcloud:
-        all_pts_f32 = valid_pts.astype(np.float32)
+        X = (vxi - cx) * vz / fx
+        Y = (vyi - cy) * vz / fy
+        all_pts_f32 = np.stack([X, Y, vz], axis=1).astype(np.float32)
         near_pts = all_pts_f32[heights < lo_cutoff - 1e-9]   # LO 위 → red
         in_pts = all_pts_f32[near_top]
         out_pts = all_pts_f32[heights > hi_cutoff + 1e-9]    # HI 아래 → grey
