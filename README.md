@@ -83,7 +83,8 @@ pip install peft pytorch-lightning pycocotools faster-coco-eval   # 학습용
 DEPAL_WEIGHTS=/경로/model.pth DEPAL_DEVICE=cuda dr-onsite-run
 ```
 
-키: `d` 검출(다시) · `v` 3D 보기 · `c` 지우기 · `r` 관심영역(ROI) 지정/해제 ·
+키: `d` 검출(1회) · `l` 실시간 검출 ON/OFF(매 프레임 연속, 깜빡임 방지 적용) ·
+`v` 3D 보기 · `c` 지우기 · `r` 관심영역(ROI) 지정/해제 ·
 `t` SAM 라벨 · `q` 종료. 팔레트는 보이는데 픽 대상이 0개면 화면에
 **PALLET EMPTY — DONE** 배너가 뜹니다.
 
@@ -95,7 +96,7 @@ pip install "dr-onsite-adap[gui]"          # PySide6 설치 (Jetson은 휠 있�
 DEPAL_WEIGHTS=/경로/model.pth DEPAL_DEVICE=cuda dr-onsite-gui
 ```
 
-사이드바: 검출 · 3D 보기 · ROI 지정/해제(영상 위 드래그) · 라벨링(SAM) · 중력 재측정 · 지우기.
+사이드바: 검출 · **실시간 검출**(연속, 깜빡임 방지) · 3D 보기 · ROI 지정/해제(영상 위 드래그) · 라벨링(SAM) · 중력 재측정 · 지우기.
 
 > **중력 재측정(🧭)**: 카메라 마운트 각도가 바뀌면 윗면 추정에 쓰는 `up_dir`(월드 수직)
 > 이 틀어집니다. 이 버튼은 현재 depth 의 **지배 수평면(바닥/팔레트) 법선**으로 up_dir 을
