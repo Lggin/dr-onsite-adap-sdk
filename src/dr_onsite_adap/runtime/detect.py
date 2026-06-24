@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from .. import config
-from .geometry import estimate_top_face
+from .geometry import estimate_top_face, estimate_top_face_v2
 from .occlusion import compute_occlusion_by_mask
 from .viz import (
     draw_fail_marker,
@@ -35,6 +35,10 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
     with_pointcloud: 3D 스냅샷용 점구름까지 계산할지. 라이브(매 프레임)에선 False 로
     꺼서 비용을 줄인다(픽 자세에는 영향 없음). 단발 'd' / 3D 보기 흐름에선 True.
     """
+    # 윗면 추정 알고리즘 선택(config.GEOM_ALGO): "v2"=평면 fit 방식, 그 외=기존 v1.
+    estimate = (estimate_top_face_v2 if config.GEOM_ALGO == "v2"
+                else estimate_top_face)
+
     t0 = time.time()
     preds = model.predict(color, conf_threshold=config.CONF_THRES)
     inference_time = time.time() - t0
@@ -74,7 +78,7 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
         masks_with_color.append((mask, color_bgr))
         item_count += 1   # 픽 대상 검출 (픽 성공 여부와 무관 — 남은 물품 카운트)
 
-        res, reason = estimate_top_face(
+        res, reason = estimate(
             mask, depth_m, intr, config, up_dir=up_dir,
             with_pointcloud=with_pointcloud,
         )

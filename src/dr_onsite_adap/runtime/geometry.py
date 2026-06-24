@@ -216,6 +216,173 @@ def estimate_top_face(mask, depth_m, intrinsics, cfg, up_dir=None,
     }, None
 
 
+def _fit_plane_iter(pts, thresh, iters=6, min_inl=30):
+    """반복 재가중 PCA 로 점들의 지배 평면을 **결정론적**으로 fit.
+
+    전체에서 시작해 매 반복 평면거리 thresh 안의 inlier 로 PCA 재적합 → 지배 평면으로
+    수렴. RANSAC 무작위성이 없어 거의 같은 입력엔 거의 같은 결과(프레임 간 깜빡임 제거).
+    윗면이 지배적이면 윗면으로, 옆면이 지배적이면(법선이 up 과 수직) 그쪽으로 수렴 →
+    호출부의 n·up 게이트가 옆면을 거른다. 반환 (n, d, inlier_mask) 또는 (None, None, None).
+    """
+    if len(pts) < min_inl:
+        return None, None, None
+    Q = pts
+    n = d = None
+    for _ in range(iters):
+        c = Q.mean(axis=0)
+        _, _, Vt = np.linalg.svd(Q - c, full_matrices=False)
+        n = Vt[-1]
+        n = n / np.linalg.norm(n)
+        d = -float(n @ c)
+        inl = np.abs(pts @ n + d) < thresh
+        if int(inl.sum()) < min_inl:
+            break
+        newQ = pts[inl]
+        if len(newQ) == len(Q):
+            break
+        Q = newQ
+    if n is None:
+        return None, None, None
+    inl = np.abs(pts @ n + d) < thresh
+    return n, d, inl
+
+
+def estimate_top_face_v2(mask, depth_m, intrinsics, cfg, up_dir=None,
+                         top_layer_band=None, with_pointcloud=True):
+    """윗면 픽 자세(중심/축/길이) — 평면 fit + n·up 게이트 + 최소면적(trim) 방식.
+
+    구버전(estimate_top_face)과 동일 시그니처/반환. 차이:
+      * 윗면을 '중력에 수직'으로 가정하지 않고 **실제 점들에 평면을 RANSAC fit**
+        → 휜/노이즈 점구름에서도 면을 따라가 inlier 가 면 전체를 덮는다.
+      * fit 된 평면 법선이 up 과 너무 어긋나면(=옆면) **"side face" 로 거부**
+        → 옆면을 윗면으로 오인해 슬리버를 뱉던 문제 제거.
+      * 방향/크기/중심을 **평면 내 각도 스윕 + trim 백분위 최소면적 사각형**으로 한 번에
+        (컨투어 minAreaRect 의 마스크 경계 의존 제거, 가장자리 이상치에 강건).
+
+    추가 cfg(없으면 기본): TOP_CAND_BAND_M(0.08), TOP_PLANE_THRESH_M(0.015),
+      TOP_PLANE_MIN_ALIGNMENT(0.7), TOP_FACE_TRIM_PCT(1.0), TOP_ANGLE_STEP_DEG(2).
+    실패 사유: "few depth" / "side face" / "few top" / "degenerate" / "behind cam".
+    """
+    fx, fy, cx, cy = intrinsics
+    band = getattr(cfg, "TOP_CAND_BAND_M", 0.08)
+    thresh = getattr(cfg, "TOP_PLANE_THRESH_M", 0.02)
+    min_align = getattr(cfg, "TOP_PLANE_MIN_ALIGNMENT", 0.7)
+    trim = getattr(cfg, "TOP_FACE_TRIM_PCT", 1.0)
+    step = int(getattr(cfg, "TOP_ANGLE_STEP_DEG", 2))
+
+    ys, xs = np.where(mask)
+    z = depth_m[ys, xs]
+    valid = (z > cfg.Z_MIN) & (z < cfg.Z_MAX)
+    if int(valid.sum()) < cfg.MIN_PLANE_INLIERS:
+        return None, "few depth"
+    z = z[valid].astype(np.float64)
+    xi = xs[valid]
+    yi = ys[valid]
+    X = (xi - cx) * z / fx
+    Y = (yi - cy) * z / fy
+    P = np.stack([X, Y, z], axis=1)
+
+    if up_dir is None:
+        up_dir = cfg.UP_DIR_CAMERA_FRAME
+    up = np.asarray(up_dir, dtype=np.float64)
+    up = up / np.linalg.norm(up)
+
+    # 1. 최상단 후보(위에서 band 이내) — 옆면 하단/하층 박스는 제외하되 윗면은 충분히 포함.
+    h = -(P @ up)                      # 작을수록 위
+    h_top0 = float(np.percentile(h, 2))
+    cand = h <= h_top0 + band
+    if int(cand.sum()) < cfg.MIN_PLANE_INLIERS:
+        return None, "few depth"
+    Qc = P[cand]
+
+    # 2. 후보에서 지배 평면을 결정론적으로 fit(반복 재가중 PCA). RANSAC 무작위성 제거.
+    n, d0, inl = _fit_plane_iter(Qc, thresh, min_inl=cfg.MIN_PLANE_INLIERS)
+    if n is None or int(inl.sum()) < cfg.MIN_PLANE_INLIERS:
+        return None, "few top"
+
+    # 3. 법선 up 쪽 정렬 + 게이트(법선이 up 과 너무 어긋나면 = 옆면 → 거부).
+    if n @ up < 0:
+        n = -n
+    if float(n @ up) < min_align:
+        return None, "side face"
+    c = Qc[inl].mean(axis=0)
+    d0 = -float(n @ c)
+
+    # 4. 정밀 평면으로 면 점 재수집(전체 마스크 점 중 평면 근처).
+    onface = np.abs(P @ n + d0) < thresh
+    Qf = P[onface]
+    if len(Qf) < cfg.MIN_PLANE_INLIERS:
+        return None, "few top"
+
+    # 5. 평면 내 직교 기저(e1,e2).
+    ref = np.array([1.0, 0.0, 0.0]) if abs(n[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    e1 = ref - (ref @ n) * n
+    e1 /= np.linalg.norm(e1)
+    e2 = np.cross(n, e1)
+    rel = Qf - c
+    p2 = np.stack([rel @ e1, rel @ e2], axis=1)
+
+    # 6. 각도 스윕 + trim 백분위 extent 로 최소면적 사각형(방향/크기/중심 동시).
+    best = None
+    for deg in range(0, 90, max(1, step)):
+        th = np.radians(deg)
+        a1 = np.array([np.cos(th), np.sin(th)])
+        a2 = np.array([-np.sin(th), np.cos(th)])
+        pu = p2 @ a1
+        pv = p2 @ a2
+        ulo, uhi = np.percentile(pu, [trim, 100.0 - trim])
+        vlo, vhi = np.percentile(pv, [trim, 100.0 - trim])
+        du, dv = uhi - ulo, vhi - vlo
+        area = du * dv
+        if best is None or area < best[0]:
+            best = (area, a1, a2, 0.5 * (ulo + uhi), 0.5 * (vlo + vhi), du, dv)
+    _, a1, a2, uc, vc, du, dv = best
+    if du < 1e-4 or dv < 1e-4:
+        return None, "degenerate"
+
+    center_plane = uc * a1 + vc * a2
+    centroid = (c + center_plane[0] * e1 + center_plane[1] * e2).astype(np.float64)
+    if centroid[2] <= 0:
+        return None, "behind cam"
+    u_center = int(round(centroid[0] * fx / centroid[2] + cx))
+    v_center = int(round(centroid[1] * fy / centroid[2] + cy))
+
+    ax_u_3d = (a1[0] * e1 + a1[1] * e2)
+    ax_v_3d = (a2[0] * e1 + a2[1] * e2)
+    if du >= dv:
+        long_axis, short_axis = ax_u_3d.astype(np.float32), ax_v_3d.astype(np.float32)
+        long_mm, short_mm = du * 1000.0, dv * 1000.0
+    else:
+        long_axis, short_axis = ax_v_3d.astype(np.float32), ax_u_3d.astype(np.float32)
+        long_mm, short_mm = dv * 1000.0, du * 1000.0
+
+    if with_pointcloud:
+        signed = P @ n + d0
+        near_pts = P[signed > thresh].astype(np.float32)      # 평면 위(카메라쪽)
+        in_pts = Qf.astype(np.float32)
+        out_pts = P[signed < -thresh].astype(np.float32)      # 평면 아래
+    else:
+        _e = np.empty((0, 3), dtype=np.float32)
+        near_pts = in_pts = out_pts = _e
+
+    return {
+        "center_3d": centroid.astype(np.float32),
+        "center_2d": (u_center, v_center),
+        "short_side_mm": float(short_mm),
+        "long_side_mm": float(long_mm),
+        "long_axis_3d": long_axis,
+        "short_axis_3d": short_axis,
+        "top_normal_3d": n.astype(np.float32),
+        "near_pts": near_pts,
+        "inlier_pts": in_pts,
+        "outside_pts": out_pts,
+        "n_total": int(valid.sum()),
+        "n_top": int(onface.sum()),
+        "n_inliers": int(onface.sum()),
+        "plane_align": float(n @ up),
+    }, None
+
+
 def estimate_up_dir(depth_m, intrinsics, cfg, iters=500, thresh=0.012,
                     subsample=15000, seed=0, refine_iters=8):
     """현재 depth 프레임에서 **지배 수평면(바닥/팔레트 등)** 의 법선을 RANSAC 으로 찾아

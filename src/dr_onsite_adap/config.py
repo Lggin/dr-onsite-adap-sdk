@@ -128,6 +128,15 @@ else:
 # Reject a plane whose normal makes a larger angle than acos(this) with up.
 TOP_PLANE_MIN_ALIGNMENT = float(os.environ.get("DEPAL_TOP_PLANE_MIN_ALIGN", "0.7"))
 
+# 윗면 추정 알고리즘: "v1"(기존: 수평가정 + 컨투어 minAreaRect) /
+# "v2"(점들에 평면 직접 fit + n·up 게이트로 옆면 거부 + 최소면적 trim 사각형).
+# v2 는 휜/노이즈 점구름에 강건하고 옆면을 윗면으로 오인하지 않으며 프레임 간 안정적.
+GEOM_ALGO = os.environ.get("DEPAL_GEOM_ALGO", "v1").lower()
+# v2 전용 파라미터(geometry 가 기본값 갖지만 여기 두면 env 로 튜닝 가능).
+TOP_CAND_BAND_M = float(os.environ.get("DEPAL_TOP_CAND_BAND_M", "0.08"))         # 최상단 후보 밴드(m)
+TOP_PLANE_THRESH_M = float(os.environ.get("DEPAL_TOP_PLANE_THRESH_M", "0.02"))   # 평면 inlier 거리(m)
+TOP_ANGLE_STEP_DEG = int(os.environ.get("DEPAL_TOP_ANGLE_STEP_DEG", "2"))        # 사각형 각도 스윕 간격(deg)
+
 # Mask-based occlusion: drop a detection whose visible mask area is below
 # (1 - this) of its own convex hull area. Single-mask test (no cross-mask).
 OCCLUSION_HIDDEN_FRACTION = float(os.environ.get("DEPAL_OCCLUSION_FRAC", "0.5"))
