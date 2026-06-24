@@ -8,6 +8,7 @@
   c  화면 오버레이 지우기
   r  관심영역(ROI) 크롭 지정/해제 (드래그=지정, ESC=전체 화면)
   t  현재 화면을 SAM으로 라벨링(액티브러닝 데이터 수집)
+  g  현재 RGB-D 프레임 덤프(.npz: rgb/depth/intrinsics/up_dir/masks) — 기하 알고리즘 오프라인 개발용
   q  종료
 """
 import json
@@ -16,6 +17,7 @@ import sys
 import time
 
 import cv2
+import numpy as np
 
 from .. import config
 from .._logging import setup_cli_logging
@@ -265,6 +267,29 @@ def main():
                 state_up_dir = None
                 auto_triggered = False
                 smoother.reset()   # ROI 변경=좌표계 변경 → 트랙 무효
+            if key == ord("g"):
+                # 기하(윗면 중심/축/길이) 알고리즘 오프라인 개발용 RGB-D 덤프.
+                # 모델을 한 번 돌려 원본 마스크/클래스/신뢰도를 함께 저장(수동 키라 비용 무방).
+                cap_dir = os.path.expanduser(
+                    os.environ.get("DEPAL_CAPTURE_DIR", "~/geom_captures"))
+                os.makedirs(cap_dir, exist_ok=True)
+                g_preds = model.predict(color_raw, conf_threshold=config.CONF_THRES)
+                g_masks = getattr(g_preds, "mask", None)
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                out_npz = os.path.join(cap_dir, f"rgbd_{ts}.npz")
+                np.savez_compressed(
+                    out_npz,
+                    rgb=color_raw,
+                    depth=depth_m.astype(np.float32),
+                    intrinsics=np.asarray(intr, dtype=np.float64),
+                    up_dir=np.asarray(up_dir, dtype=np.float64),
+                    masks=(np.zeros((0,) + depth_m.shape[:2], np.uint8)
+                           if g_masks is None else g_masks.astype(np.uint8)),
+                    class_ids=np.asarray(g_preds.class_id, dtype=np.int32),
+                    confidences=np.asarray(g_preds.confidence, dtype=np.float32),
+                )
+                n_g = 0 if g_masks is None else len(g_masks)
+                print(f"[g] RGB-D 캡처 저장: {out_npz}  (검출 {n_g}개)")
             if key == ord("t") and labeler is not None:
                 labeler.label_frame(color_raw)
     finally:
