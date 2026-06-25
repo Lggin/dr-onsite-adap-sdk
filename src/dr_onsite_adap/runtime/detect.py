@@ -26,7 +26,7 @@ from .viz import (
 
 
 def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
-                  with_pointcloud=True):
+                  with_pointcloud=True, conf_threshold=None):
     """Run the model + top-face estimation + mask-based occlusion once.
 
     Returns a state dict that the main loop overlays onto every frame
@@ -39,8 +39,10 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
     estimate = (estimate_top_face_v2 if config.GEOM_ALGO == "v2"
                 else estimate_top_face)
 
+    if conf_threshold is None:
+        conf_threshold = config.CONF_THRES
     t0 = time.time()
-    preds = model.predict(color, conf_threshold=config.CONF_THRES)
+    preds = model.predict(color, conf_threshold=conf_threshold)
     inference_time = time.time() - t0
 
     masks = getattr(preds, "mask", None)
