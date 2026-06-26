@@ -63,6 +63,45 @@ class SAMLabeler:
         self.input_labels = []
         self.poly_mode = False      # 'p' 로 토글. True 면 클릭=폴리곤 점.
         self.poly_pts = []          # 수동 폴리곤 정점들
+        self._status = "draw a box around an object to start"   # 창에 표시되는 안내문
+
+    @staticmethod
+    def _bar(img, lines, y_top, scale=0.5, fg=(255, 255, 255), lh=24, pad=6):
+        """반투명 검은 띠 위에 텍스트 줄들을 그린다(배경 무관 가독성). ASCII 전용."""
+        h, w = img.shape[:2]
+        y0 = max(0, int(y_top))
+        y1 = min(h, y0 + pad * 2 + lh * len(lines))
+        ov = img.copy()
+        cv2.rectangle(ov, (0, y0), (w, y1), (0, 0, 0), -1)
+        cv2.addWeighted(ov, 0.55, img, 0.45, 0, img)
+        y = y0 + pad + 15
+        for ln in lines:
+            cv2.putText(img, ln, (10, y), cv2.FONT_HERSHEY_SIMPLEX, scale,
+                        fg, 1, cv2.LINE_AA)
+            y += lh
+
+    def _hud(self, img):
+        """라벨링 창에 '조작법 + 실시간 상태'를 항상 표시 — 터미널 안 봐도 됨.
+        (cv2 폰트가 한글 미지원이라 영문으로 표기)."""
+        h = img.shape[0]
+        legend = "  ".join(f"{c}:{self.classes[c][0]}"
+                           for c in sorted(self.class_keys.values()))
+        mode = "POLYGON" if self.poly_mode else "SAM"
+        # 상단: 모드 + 현재 상태 + 확정 개수(자동)
+        self._bar(img, [f"[{mode}]  {self._status}   |  confirmed: {len(self.annotations)}"],
+                  0, scale=0.6, fg=(0, 255, 255))
+        # 하단: 조작법(모드별) + 클래스 키
+        if self.poly_mode:
+            l1 = "POLYGON:  L-click=add point   R-click=remove point   f=finish   p=back to SAM"
+        else:
+            l1 = "drag=box (SAM)   L-click=include point   R-click=exclude point   p=polygon"
+        l2 = f"confirm class -> {legend}      z=undo     Enter=SAVE     ESC=cancel"
+        self._bar(img, [l1, l2], h - (2 * 24 + 12), scale=0.5, fg=(255, 255, 255))
+
+    def _show(self, img):
+        """HUD(안내/상태)를 얹어 창에 표시. 모든 화면 갱신은 이걸 통한다."""
+        self._hud(img)
+        cv2.imshow(self.WINDOW_NAME, img)
 
     def _rebuild(self):
         """현재 self.annotations 만으로 화면(confirmed_img)과 mask_canvas 를 다시 그린다.
@@ -87,7 +126,7 @@ class SAMLabeler:
         self.input_labels = []
         self.poly_pts = []
         self.temp_img = self.confirmed_img.copy()
-        cv2.imshow(self.WINDOW_NAME, self.temp_img)
+        self._show(self.temp_img)
 
     def _undo_last(self):
         """마지막으로 확정한 라벨 하나만 취소."""
@@ -95,6 +134,7 @@ class SAMLabeler:
             print("  취소할 라벨이 없습니다")
             return
         removed = self.annotations.pop()
+        self._status = f"undone ({removed['class_name']})"
         self._rebuild()
         print(f"  ↩ 마지막 라벨 취소: {removed['class_name']} (남은 {len(self.annotations)}개)")
 
@@ -107,7 +147,7 @@ class SAMLabeler:
                 cv2.polylines(self.temp_img, [pts], False, (0, 255, 255), 2)
             for p in self.poly_pts:
                 cv2.circle(self.temp_img, tuple(p), 4, (0, 255, 0), -1)
-        cv2.imshow(self.WINDOW_NAME, self.temp_img)
+        self._show(self.temp_img)
 
     def _finish_poly(self):
         """모은 정점으로 폴리곤 마스크를 만들어 'SAM 마스크'와 동일한 확정 대기 상태로."""
@@ -129,7 +169,8 @@ class SAMLabeler:
         overlay[self.current_mask] = (0, 255, 255)
         cv2.addWeighted(self.temp_img, 1.0, overlay, 0.5, 0, self.temp_img)
         cv2.polylines(self.temp_img, [self.current_polygon], True, (0, 255, 255), 2)
-        cv2.imshow(self.WINDOW_NAME, self.temp_img)
+        self._status = "polygon ready - press a number key to confirm"
+        self._show(self.temp_img)
         print("  폴리곤 완성 — 클래스 숫자키로 확정하세요")
 
     def _update_sam(self):
@@ -144,6 +185,8 @@ class SAMLabeler:
             multimask_output=False,
         )
         mask = masks[0]
+        self._status = (f"mask score {float(scores[0]):.2f} "
+                        f"- press a number key to confirm")
         contours, _ = cv2.findContours(
             mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE,
         )
@@ -169,7 +212,7 @@ class SAMLabeler:
             col = (0, 255, 0) if self.input_labels[i] == 1 else (0, 0, 255)
             cv2.circle(self.temp_img, tuple(pt), 4, col, -1)
             cv2.circle(self.temp_img, tuple(pt), 5, (255, 255, 255), 1)
-        cv2.imshow(self.WINDOW_NAME, self.temp_img)
+        self._show(self.temp_img)
         print(f"  mask updated (score {scores[0]:.2f})")
 
     def _on_mouse(self, event, x, y, flags, param):
@@ -198,7 +241,7 @@ class SAMLabeler:
                 self.temp_img = self.confirmed_img.copy()
                 cv2.rectangle(self.temp_img, (self.ix, self.iy), (x, y),
                               (255, 0, 0), 2)
-                cv2.imshow(self.WINDOW_NAME, self.temp_img)
+                self._show(self.temp_img)
         elif event == cv2.EVENT_LBUTTONUP:
             self.drawing = False
             if abs(self.ix - x) < 5 and abs(self.iy - y) < 5:
@@ -247,7 +290,7 @@ class SAMLabeler:
         except Exception:
             pass
         cv2.setMouseCallback(self.WINDOW_NAME, self._on_mouse)
-        cv2.imshow(self.WINDOW_NAME, self.temp_img)
+        self._show(self.temp_img)
 
         try:
             while True:
@@ -257,8 +300,10 @@ class SAMLabeler:
                 elif k == ord("p"):
                     self.poly_mode = not self.poly_mode
                     self.poly_pts = []
+                    self._status = ("polygon mode ON - click points, then f"
+                                    if self.poly_mode else "SAM mode - drag a box")
                     self.temp_img = self.confirmed_img.copy()
-                    cv2.imshow(self.WINDOW_NAME, self.temp_img)
+                    self._show(self.temp_img)
                     print("  폴리곤 모드:",
                           "ON (좌클릭=점, f=완성, 우클릭=취소)" if self.poly_mode
                           else "OFF (드래그=박스 SAM)")
@@ -282,12 +327,13 @@ class SAMLabeler:
                     cv2.polylines(self.confirmed_img, [self.current_polygon],
                                   True, color, 2)
                     print(f"  + {name}  (누적 {len(self.annotations)}개)")
+                    self._status = f"confirmed {name} - draw next, or Enter to save"
                     self.current_mask = self.current_polygon = self.current_bbox = None
                     self.saved_box = None
                     self.input_points = []
                     self.input_labels = []
                     self.temp_img = self.confirmed_img.copy()
-                    cv2.imshow(self.WINDOW_NAME, self.temp_img)
+                    self._show(self.temp_img)
                 elif k == 13:  # Enter
                     return self._save(bgr_frame)
                 elif k == 27:  # ESC
