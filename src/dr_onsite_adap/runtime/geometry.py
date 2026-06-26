@@ -268,7 +268,6 @@ def estimate_top_face_v2(mask, depth_m, intrinsics, cfg, up_dir=None,
     thresh = getattr(cfg, "TOP_PLANE_THRESH_M", 0.02)
     min_align = getattr(cfg, "TOP_PLANE_MIN_ALIGNMENT", 0.7)
     trim = getattr(cfg, "TOP_FACE_TRIM_PCT", 1.0)
-    step = int(getattr(cfg, "TOP_ANGLE_STEP_DEG", 2))
 
     ys, xs = np.where(mask)
     z = depth_m[ys, xs]
@@ -322,21 +321,21 @@ def estimate_top_face_v2(mask, depth_m, intrinsics, cfg, up_dir=None,
     rel = Qf - c
     p2 = np.stack([rel @ e1, rel @ e2], axis=1)
 
-    # 6. 각도 스윕 + trim 백분위 extent 로 최소면적 사각형(방향/크기/중심 동시).
-    best = None
-    for deg in range(0, 90, max(1, step)):
-        th = np.radians(deg)
-        a1 = np.array([np.cos(th), np.sin(th)])
-        a2 = np.array([-np.sin(th), np.cos(th)])
-        pu = p2 @ a1
-        pv = p2 @ a2
-        ulo, uhi = np.percentile(pu, [trim, 100.0 - trim])
-        vlo, vhi = np.percentile(pv, [trim, 100.0 - trim])
-        du, dv = uhi - ulo, vhi - vlo
-        area = du * dv
-        if best is None or area < best[0]:
-            best = (area, a1, a2, 0.5 * (ulo + uhi), 0.5 * (vlo + vhi), du, dv)
-    _, a1, a2, uc, vc, du, dv = best
+    # 6. 방향 = 평면 내 점들의 2D-PCA 주축(각도 스윕 대신 한 번에 — 객체당 비용 대폭↓).
+    #    스윕(0~90° 45스텝 × 백분위 2회)이 v2 의 주 병목이었음. 직사각형 면에선 최대분산
+    #    방향 = 긴 변 방향이라 minAreaRect 와 사실상 일치하면서 O(1) 로 끝난다.
+    #    크기/중심 = 그 축에 투영한 점들의 trim 백분위 구간(가장자리 이상치 제거).
+    cov = np.cov(p2.T)                       # 2x2 평면 내 공분산
+    _, evecs = np.linalg.eigh(cov)           # 오름차순 → 마지막 열 = 최대분산(긴 축)
+    a1 = evecs[:, -1]
+    a1 = a1 / (np.linalg.norm(a1) + 1e-12)
+    a2 = np.array([-a1[1], a1[0]])           # 직교 단위벡터
+    pu = p2 @ a1
+    pv = p2 @ a2
+    ulo, uhi = np.percentile(pu, [trim, 100.0 - trim])
+    vlo, vhi = np.percentile(pv, [trim, 100.0 - trim])
+    du, dv = uhi - ulo, vhi - vlo
+    uc, vc = 0.5 * (ulo + uhi), 0.5 * (vlo + vhi)
     if du < 1e-4 or dv < 1e-4:
         return None, "degenerate"
 
