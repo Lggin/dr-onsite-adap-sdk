@@ -32,11 +32,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import cv2
 import numpy as np
 
 from . import config
 from .runtime.detect import run_detection
 from .runtime.inference import SegModel
+from .runtime.viz import (
+    draw_orientation_axes,
+    draw_styled_text,
+    draw_top_center,
+    overlay_mask,
+)
 
 
 def _name(cid: int) -> str:
@@ -87,6 +94,7 @@ class SceneResult:
     done: bool = False           # 팔레트는 보이는데 픽 대상 0 = 작업 완료
     counts: dict[int, int] = field(default_factory=dict)
     inference_time: float = 0.0
+    intrinsics: tuple | None = None    # (fx,fy,cx,cy) — draw() 의 축 투영에 사용
 
 
 def _vec3(a) -> tuple[float, float, float]:
@@ -179,4 +187,53 @@ class OnsiteDetector:
             pick_targets=picks, pallets=pallets,
             item_count=state["item_count"], done=state["done"],
             counts=state["counts"], inference_time=state["inference_time"],
+            intrinsics=tuple(intrinsics),
         )
+
+    # ── 시각화 ──
+    def draw(self, color_bgr: np.ndarray, result) -> np.ndarray:
+        """검출/픽자세를 그린 BGR 이미지를 반환.
+
+        result : detect() 의 list[Detection] 또는 process() 의 SceneResult.
+          * Detection 리스트 → 박스 + 마스크 + 클래스/신뢰도
+          * SceneResult → 마스크 + 픽 중심점 + 장단축 + 치수(+팔레트/완료 배너)
+        """
+        vis = color_bgr.copy()
+
+        def _color(cid):
+            entry = config.CLASSES.get(cid)
+            return entry[1] if entry else (0, 255, 0)
+
+        if isinstance(result, SceneResult):
+            for i, p in enumerate(result.pick_targets, 1):
+                col = _color(p.class_id)
+                if p.mask is not None:
+                    overlay_mask(vis, p.mask, col)
+                draw_top_center(vis, p.center_2d)
+                if result.intrinsics is not None:
+                    draw_orientation_axes(
+                        vis, np.asarray(p.center_3d, dtype=float),
+                        np.asarray(p.long_axis_3d, dtype=float),
+                        np.asarray(p.short_axis_3d, dtype=float),
+                        p.long_side_mm, p.short_side_mm, result.intrinsics)
+                u, v = p.center_2d
+                draw_styled_text(
+                    vis, f"[{i}] {p.class_name} {p.long_side_mm:.0f}x{p.short_side_mm:.0f}mm",
+                    (u + 10, v - 10), col, scale=0.5, thickness=1)
+            for pal in result.pallets:
+                if pal.center_2d is not None:
+                    draw_styled_text(vis, "Pallet", pal.center_2d,
+                                     (130, 100, 50), scale=0.6, thickness=2)
+            if result.done:
+                draw_styled_text(vis, "PALLET EMPTY - DONE", (20, 40),
+                                 (0, 220, 0), scale=1.0, thickness=2)
+        else:  # list[Detection]
+            for d in result:
+                col = _color(d.class_id)
+                if d.mask is not None:
+                    overlay_mask(vis, d.mask, col)
+                x1, y1, x2, y2 = d.bbox
+                cv2.rectangle(vis, (x1, y1), (x2, y2), col, 2)
+                draw_styled_text(vis, f"{d.class_name} {d.confidence:.2f}",
+                                 (x1, max(15, y1 - 6)), col, scale=0.5, thickness=1)
+        return vis
