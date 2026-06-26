@@ -19,7 +19,7 @@ import numpy as np
 from .. import config
 from ..runtime.inference import SegModel
 
-CLASSES = {0: "Box", 1: "Tote", 2: "Wrap", 3: "Pallet"}
+CLASSES = {cid: name for cid, (name, _) in config.CLASSES.items()}   # config 순서 따름
 CONF_EVAL = 0.05   # AP 곡선용 낮은 임계값
 
 
@@ -76,7 +76,7 @@ def main():
         x, y, w, h = a["bbox"]
         gt.setdefault(a["image_id"], []).append((a["category_id"], [x, y, x + w, y + h]))
     # 팔레트 포함 이미지를 우선 선택한 뒤 나머지로 채움
-    pal = [i for i, g in gt.items() if any(c == 3 for c, _ in g)]
+    pal = [i for i, g in gt.items() if any(c == config.PALLET_CID for c, _ in g)]
     rest = [i for i in imgs if i not in pal]
     random.seed(0); random.shuffle(rest)
     sel = pal[:200] + rest[:max(0, args.n - min(len(pal), 200))]

@@ -7,7 +7,7 @@
 - 데이터셋 폴더 안의 sam_hard_*.json 중 아직 train 에 없는 것만 대상으로 합니다.
 - train 과 valid **양쪽에 똑같이** 추가합니다(이 파이프라인의 valid 는 별도 검증셋이
   아니라 학습이 새 크롭을 보게 하려는 용도입니다).
-- category_id 는 라벨러의 class_id 그대로(0=Box, 1=Tote, 2=Wrap, 3=Pallet).
+- category_id 는 라벨러의 class_id 그대로(0=Pallet, 1=Carton, 2=Tote, 3=Shrink Wrap).
 - 쓰기 전에 train/valid COCO 를 타임스탬프 백업합니다.
 
 사용법:

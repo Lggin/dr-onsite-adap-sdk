@@ -24,7 +24,9 @@ from pathlib import Path
 
 from .. import config
 
-PALLET_CAT = {"id": 3, "name": "Pallet", "supercategory": "object"}
+PALLET_CAT = {"id": config.PALLET_CID,
+              "name": config.CLASSES[config.PALLET_CID][0],
+              "supercategory": "object"}
 NAMES = {0: "Box", 1: "Tote", 2: "Shrink Wrap", 3: "Pallet"}
 
 
@@ -59,7 +61,7 @@ def _build_split(split, src_base, synth_dirs, out, exclude_prefix):
     (out / split).mkdir(parents=True, exist_ok=True)
     src = json.loads((src_base / split / "_annotations.coco.json").read_text())
     cats = src["categories"][:]
-    if not any(c["id"] == 3 for c in cats):
+    if not any(c["id"] == config.PALLET_CID for c in cats):
         cats.append(PALLET_CAT)
     coco = {"info": src.get("info", {}), "licenses": src.get("licenses", []),
             "categories": cats, "images": [], "annotations": []}

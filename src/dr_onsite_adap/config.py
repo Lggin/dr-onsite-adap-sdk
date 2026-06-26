@@ -43,15 +43,17 @@ DEVICE = os.environ.get("DEPAL_DEVICE", "cpu")
 
 # Pallet is not a pick target — it is excluded from top-face/occlusion and
 # only used as the "empty pallet = done" signal + reference plane.
-PALLET_CID = 3
-PICKABLE_CIDS = (0, 1, 2)
+PALLET_CID = 0
+PICKABLE_CIDS = (1, 2, 3)
 
 # class_id -> (display name, BGR color)
+# 2026-06-26 클래스 순서 재정렬(v10~): 0=Pallet, 1=Carton, 2=Tote, 3=Shrink Wrap.
+# 색은 각 클래스 정체성 유지(Carton=옛Box 초록, Tote 주황, Shrink Wrap=옛Wrap 빨강, Pallet 갈색).
 CLASSES = {
-    0: ("Box",    (0, 255, 0)),
-    1: ("Tote",   (255, 165, 0)),
-    2: ("Wrap",   (0, 0, 255)),
-    3: ("Pallet", (50, 100, 160)),
+    0: ("Pallet",      (50, 100, 160)),
+    1: ("Carton",      (0, 255, 0)),
+    2: ("Tote",        (255, 165, 0)),
+    3: ("Shrink Wrap", (0, 0, 255)),
 }
 
 # ---------------------------------------------------------------------------

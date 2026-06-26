@@ -66,7 +66,7 @@ python depal_detect.py frame.jpg --weights continual_master_v9_full.pth --thresh
 @dataclass
 class Detection:
     class_id:   int                       # 0~3
-    class_name: str                       # "Box" / "Tote" / "Wrap" / "Pallet"
+    class_name: str                       # "Pallet" / "Carton" / "Tote" / "Shrink Wrap"
     confidence: float                     # 0~1
     bbox:       tuple[int,int,int,int]     # (x1, y1, x2, y2) 픽셀
     mask:       np.ndarray | None          # HxW bool (세그멘테이션 마스크)
@@ -75,10 +75,10 @@ class Detection:
 ### 클래스 ID
 | id | 이름 |
 |----|------|
-| 0 | Box (박스) |
-| 1 | Tote (토트박스) |
-| 2 | Wrap (슈링크랩) |
-| 3 | Pallet (팔레트) |
+| 0 | Pallet (팔레트) |
+| 1 | Carton (종이박스) |
+| 2 | Tote (토트박스) |
+| 3 | Shrink Wrap (슈링크랩) |
 
 ## 6. 검출율이 낮게 나올 때 (체크리스트)
 

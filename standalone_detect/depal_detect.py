@@ -1,4 +1,4 @@
-"""depal_detect — 디팔레타이징 검출 facade (Box / Tote / Wrap / Pallet).
+"""depal_detect — 디팔레타이징 검출 facade (Pallet / Carton / Tote / Shrink Wrap).
 
 가중치는 같은데 코드마다 검출율이 달라지는 문제를 막기 위해, 모델 로드·전처리·
 임계·클래스 설정을 **한 곳에 캡슐화**한다. 이 파일 + 가중치 파일만 있으면 누가
@@ -36,9 +36,9 @@ import numpy as np
 import torch
 from rfdetr import RFDETRSegMedium
 
-# 학습 시 클래스 순서와 동일해야 한다(가중치에 박혀 있음).
-CLASS_NAMES = {0: "Box", 1: "Tote", 2: "Wrap", 3: "Pallet"}
-_CLASS_BGR = {0: (0, 255, 0), 1: (255, 165, 0), 2: (0, 0, 255), 3: (50, 100, 160)}
+# 학습 시 클래스 순서와 동일해야 한다(가중치에 박혀 있음). v10~ 새 순서.
+CLASS_NAMES = {0: "Pallet", 1: "Carton", 2: "Tote", 3: "Shrink Wrap"}
+_CLASS_BGR = {0: (50, 100, 160), 1: (0, 255, 0), 2: (255, 165, 0), 3: (0, 0, 255)}
 
 
 @dataclass

@@ -96,7 +96,7 @@ def main():
         for a in pal["annotations"]:
             panns.setdefault(a["image_id"], []).append(a)
         pal_imgs = {im["id"]: im for im in pal["images"]}
-        with_pallet = [i for i, al_ in panns.items() if any(a["category_id"] == 3 for a in al_)]
+        with_pallet = [i for i, al_ in panns.items() if any(a["category_id"] == config.PALLET_CID for a in al_)]
         random.shuffle(with_pallet)
         pick = with_pallet[:K]
         for pid in pick:
