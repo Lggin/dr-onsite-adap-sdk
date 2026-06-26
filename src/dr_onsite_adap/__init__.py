@@ -30,7 +30,8 @@ __all__ = [
     "ModelError",
     "PipelineError",
     # facade API (지연 로드 — 아래 __getattr__ 참고)
-    "OnsiteDetector",
+    "OnsiteDetector",      # low/mid-level: 프레임 넣고 결과 받기
+    "OnsiteSession",       # high-level: 카메라+추론 소유, 콜백+폴링 (UI 팀용)
     "SceneResult",
     "PickPose",
     "Pallet",
@@ -39,7 +40,7 @@ __all__ = [
 
 # 검출 facade 는 torch/rfdetr 를 끌어오므로, `import dr_onsite_adap` 만으로는 로드하지
 # 않고 실제로 이름을 가져갈 때만 지연 import 한다(PEP 562). 그래서 가벼운 예외/버전
-# 사용은 무거운 의존성 없이 되고, `from dr_onsite_adap import OnsiteDetector` 도 동작한다.
+# 사용은 무거운 의존성 없이 되고, `from dr_onsite_adap import OnsiteDetector/OnsiteSession` 도 동작한다.
 _LAZY_API = {"OnsiteDetector", "SceneResult", "PickPose", "Pallet", "Detection"}
 
 
@@ -47,6 +48,9 @@ def __getattr__(name):
     if name in _LAZY_API:
         from . import api
         return getattr(api, name)
+    if name == "OnsiteSession":
+        from .runtime.session import OnsiteSession
+        return OnsiteSession
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # 라이브러리 위생: 임포트만으로는 로그를 출력하지 않는다(임베딩 앱이 핸들러 제어).
