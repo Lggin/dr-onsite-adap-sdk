@@ -288,6 +288,13 @@ def estimate_top_face_v2(mask, depth_m, intrinsics, cfg, up_dir=None,
 
     # 1. 최상단 후보(위에서 band 이내) — 옆면 하단/하층 박스는 제외하되 윗면은 충분히 포함.
     h = -(P @ up)                      # 작을수록 위
+    # 비용 상한: 점이 많으면 균일 서브샘플(평면 fit/방향/크기 추정엔 수천 점이면 충분).
+    # 결정론적 스트라이드라 프레임 간 안정성 유지. 큰 마스크일수록 SVD/percentile 비용 급감.
+    maxp = int(getattr(cfg, "TOP_MAX_PTS", 4000))
+    if len(P) > maxp:
+        sel = np.linspace(0, len(P) - 1, maxp).astype(np.int64)
+        P = P[sel]
+        h = h[sel]
     h_top0 = float(np.percentile(h, 2))
     cand = h <= h_top0 + band
     if int(cand.sum()) < cfg.MIN_PLANE_INLIERS:
