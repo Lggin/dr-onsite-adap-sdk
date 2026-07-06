@@ -3,7 +3,7 @@
 # 학습 탭 버튼들이 아래 env 를 상속받아 동작합니다.
 set -a
 # 모델/디바이스
-DEPAL_WEIGHTS=${1:-$HOME/depal_weights_backup/continual_master_v9_full.pth}   # 1번째 인자로 가중치 경로 주면 그걸 사용
+DEPAL_WEIGHTS=${1:-$HOME/depal_weights_backup/continual_master_v10.pth}   # 1번째 인자로 가중치 경로 주면 그걸 사용
 DEPAL_DEVICE=cuda
 DEPAL_NUM_CLASSES=4
 DEPAL_GEOM_ALGO=v2   # 윗면 기하 v2(평면fit+옆면거부+최소면적)
@@ -13,7 +13,7 @@ DEPAL_SAM_DEVICE=cuda
 # 데이터셋(라벨저장 = 취합 = 학습, 한 폴더)
 DEPAL_DATA_DIR=$HOME/depal_data
 # 학습 라운드
-DEPAL_BASE_WEIGHTS=$HOME/depal_weights_backup/continual_master_v9_full.pth
+DEPAL_BASE_WEIGHTS=$HOME/depal_weights_backup/continual_master_v10.pth
 DEPAL_LORA_SAFE=$HOME/demo_runs/lora_safe
 DEPAL_LORA_RUN=$HOME/demo_runs/lora_run
 DEPAL_FINAL=$HOME/demo_runs/merged_demo.pth
