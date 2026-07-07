@@ -44,16 +44,22 @@ DEVICE = os.environ.get("DEPAL_DEVICE", "cpu")
 # Pallet is not a pick target — it is excluded from top-face/occlusion and
 # only used as the "empty pallet = done" signal + reference plane.
 PALLET_CID = 0
-PICKABLE_CIDS = (1, 2, 3)
+PICKABLE_CIDS = (1, 2, 3, 4)   # Slip Sheet(4)도 픽 대상
 
 # class_id -> (display name, BGR color)
-# 2026-06-26 클래스 순서 재정렬(v10~): 0=Pallet, 1=Carton, 2=Tote, 3=Shrink Wrap.
-# 색은 각 클래스 정체성 유지(Carton=옛Box 초록, Tote 주황, Shrink Wrap=옛Wrap 빨강, Pallet 갈색).
+# 현재(v10 운영): 0=Pallet, 1=Carton, 2=Tote, 3=Shrink Wrap.
+# ⚠️ 아래 4=Slip Sheet 는 **수집(라벨링) 임시 id** 다 — 현 v10(4클래스)은 클래스4 를 출력 안 하고
+#    0~3 은 그대로라, append(4) 는 v10 실시간 오라벨을 안 일으킨다(라벨러 숫자키 '4' 만 활성).
+# ★ v11 최종 순서는 **0:Pallet, 1:Slip Sheet, 2:Carton, 3:Tote, 4:Shrink Wrap** (Slip Sheet 를 1 로
+#   삽입). v11 데이터셋 빌드 때 remap: 수집 4→1, Carton 1→2, Tote 2→3, Wrap 3→4, Pallet 0→0.
+#   v11(5클래스) 학습·배포 시 이 CLASSES 를 최종 순서로 교체 + NUM_CLASSES=5 (현재는 4 유지).
+#   ⚠️ 최종 순서는 Carton 1→2 이동 = 다운스트림 계약 변경 → 배포 전 UI/로봇팀과 재합의.
 CLASSES = {
     0: ("Pallet",      (50, 100, 160)),
     1: ("Carton",      (0, 255, 0)),
     2: ("Tote",        (255, 165, 0)),
     3: ("Shrink Wrap", (0, 0, 255)),
+    4: ("Slip Sheet",  (255, 0, 255)),   # 수집 임시 id (v11 최종=1)
 }
 
 # ---------------------------------------------------------------------------
