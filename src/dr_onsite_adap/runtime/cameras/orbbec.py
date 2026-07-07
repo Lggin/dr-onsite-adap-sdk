@@ -188,6 +188,21 @@ class FemtoBoltStream:
         # Align depth onto the color stream's space (so depth[v,u] matches color[v,u]).
         self.align_filter = obs.AlignFilter(obs.OBStreamType.COLOR_STREAM)
 
+        # 네트워크 Femto Mega "Timestamp anomaly" 대응: 프레임 동기 요구를 완화한다.
+        # 기본(FULL_FRAME_REQUIRE)은 color+depth 가 완벽 동기된 프레임셋만 내보내므로,
+        # 타임스탬프가 튀면(네트워크 지터/클럭 드리프트) 프레임셋을 통째로 버려 0fps 가 된다.
+        # ANY_SITUATION + frame_sync 해제로 안 맞아도 프레임을 흘려보내고, read() 가 마지막
+        # color/정렬depth 를 캐싱해 짝짓는다(고정 마운트라 약간 다른 시점 depth 도 정확).
+        try:
+            cfg.set_frame_aggregate_output_mode(
+                obs.OBFrameAggregateOutputMode.ANY_SITUATION)
+        except Exception as e:
+            logger.debug("set_frame_aggregate_output_mode 미지원: %s", e)
+        try:
+            self.pipeline.disable_frame_sync()
+        except Exception as e:
+            logger.debug("disable_frame_sync 미지원: %s", e)
+
         self.pipeline.start(cfg)
 
         params = self.pipeline.get_camera_param()
