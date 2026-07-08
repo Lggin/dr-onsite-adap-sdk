@@ -27,11 +27,10 @@ from collections import Counter
 
 from .. import config
 
-CATS = [{"id": 0, "name": "Box", "supercategory": "object"},
-        {"id": 1, "name": "Tote Box", "supercategory": "object"},
-        {"id": 2, "name": "Shrink Wrap", "supercategory": "object"},
-        {"id": 3, "name": "Pallet", "supercategory": "object"}]
-NAMES = {0: "Box", 1: "Tote", 2: "Wrap", 3: "Pallet"}
+# config.CLASSES 단일 소스에서 파생 → 클래스 순서 변경 시 자동 정합(v11: 0:Pallet..4:Shrink Wrap).
+CATS = [{"id": cid, "name": name, "supercategory": "object"}
+        for cid, (name, _c) in sorted(config.CLASSES.items())]
+NAMES = {cid: name for cid, (name, _c) in config.CLASSES.items()}
 
 
 def load(split, base):

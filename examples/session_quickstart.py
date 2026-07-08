@@ -4,10 +4,10 @@
 
 실행:
   # 실제 카메라
-  python session_quickstart.py --weights continual_master_v10.pth --seconds 10
+  python session_quickstart.py --weights continual_master_v11.pth --seconds 10
 
   # 카메라 없이 — 저장된 RGB-D 캡처(.npz) 재생
-  python session_quickstart.py --weights continual_master_v10.pth \
+  python session_quickstart.py --weights continual_master_v11.pth \
         --replay '/home/dr/geom_captures/rgbd_*.npz' --seconds 10 --save out.jpg
 """
 import argparse

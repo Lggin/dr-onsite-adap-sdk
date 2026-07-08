@@ -12,8 +12,8 @@ git clone <레포> && cd dr-onsite-adap-sdk   # (사내 접근권한 필요, 브
 # 1) 설치 — venv + SDK + 의존성 (한 방)
 bash onboarding/install.sh
 
-# 2) 가중치 배치 — 담당자에게 continual_master_v10.pth 받아서:
-mkdir -p weights && cp <받은경로>/continual_master_v10.pth weights/
+# 2) 가중치 배치 — 담당자에게 continual_master_v11.pth 받아서:
+mkdir -p weights && cp <받은경로>/continual_master_v11.pth weights/
 #   (다른 위치면 onboarding/.env 의 DEPAL_WEIGHTS 수정. GPU 없으면 .env 에서 DEPAL_DEVICE=cpu)
 
 # 3) 검증 실행 — 카메라 없이 샘플 프레임으로 OnsiteSession 동작 확인
@@ -51,5 +51,5 @@ bash onboarding/run.sh my_app.py   # .env 를 읽어 venv 로 실행
 ## 주의
 - `install.sh` 는 `pip install -e .` 로 `torch·rfdetr·opencv` 등을 깝니다(용량 큼, 수 분).
 - **가중치(.pth)는 git 에 없음** — 담당자 배포.
-- **클래스 순서(★)**: 0=Pallet, 1=Carton, 2=Tote, 3=Shrink Wrap.
+- **클래스 순서(★, v11)**: 0=Pallet, 1=Slip Sheet, 2=Carton, 3=Tote, 4=Shrink Wrap.
 - torch(CUDA)·카메라 SDK 는 환경 따라 설치가 까다로울 수 있음 — 문제 시 담당자 문의.

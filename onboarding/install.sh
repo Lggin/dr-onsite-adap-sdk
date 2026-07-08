@@ -36,8 +36,8 @@ cat <<EOF
 ✅ 설치 완료.
 
 다음 3가지만 하면 실행됩니다:
-  1) 가중치 파일(continual_master_v10.pth)을 담당자에게 받아 아래 경로에 두기:
-       $REPO/weights/continual_master_v10.pth
+  1) 가중치 파일(continual_master_v11.pth)을 담당자에게 받아 아래 경로에 두기:
+       $REPO/weights/continual_master_v11.pth
      (다른 경로면 onboarding/.env 의 DEPAL_WEIGHTS 를 수정)
   2) (GPU 없으면) onboarding/.env 에서 DEPAL_DEVICE=cpu 로
   3) 설치 검증 실행:

@@ -15,7 +15,7 @@ import numpy as np
 
 from dr_onsite_adap import OnsiteDetector
 
-WEIGHTS = "/home/dr/lee3/thirdtask/lora_weights_b1/continual_master_v9_full.pth"
+WEIGHTS = "/home/dr/lee3/thirdtask/lora_weights_b1/continual_master_v11.pth"
 DEVICE = "cpu"        # 데모는 GPU가 학습중이라 cpu. 실전은 None(자동 cuda).
 NPZ = sorted(glob.glob("/home/dr/geom_captures/rgbd_*.npz"))
 

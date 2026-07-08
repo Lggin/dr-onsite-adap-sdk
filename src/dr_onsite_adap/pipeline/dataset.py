@@ -27,7 +27,7 @@ from .. import config
 PALLET_CAT = {"id": config.PALLET_CID,
               "name": config.CLASSES[config.PALLET_CID][0],
               "supercategory": "object"}
-NAMES = {0: "Box", 1: "Tote", 2: "Shrink Wrap", 3: "Pallet"}
+NAMES = {cid: name for cid, (name, _c) in config.CLASSES.items()}   # config 단일 소스(v11 5클래스)
 
 
 # ---------------------------------------------------------------------------

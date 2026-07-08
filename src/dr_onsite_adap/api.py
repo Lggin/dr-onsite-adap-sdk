@@ -174,7 +174,7 @@ class OnsiteDetector:
     weights : str | None
         가중치 경로. None 이면 config.WEIGHTS_PATH(env DEPAL_WEIGHTS).
     num_classes : int | None
-        클래스 수. None 이면 config.NUM_CLASSES(기본 4). **가중치와 일치해야 함.**
+        클래스 수. None 이면 config.NUM_CLASSES(기본 5). **가중치와 일치해야 함.**
     device : str | None
         "cuda"/"cpu". None 이면 config.DEVICE.
     geom_algo : str | None

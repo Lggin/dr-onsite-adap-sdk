@@ -65,8 +65,8 @@ python depal_detect.py frame.jpg --weights continual_master_v9_full.pth --thresh
 ```python
 @dataclass
 class Detection:
-    class_id:   int                       # 0~3
-    class_name: str                       # "Pallet" / "Carton" / "Tote" / "Shrink Wrap"
+    class_id:   int                       # 0~4
+    class_name: str                       # "Pallet" / "Slip Sheet" / "Carton" / "Tote" / "Shrink Wrap"
     confidence: float                     # 0~1
     bbox:       tuple[int,int,int,int]     # (x1, y1, x2, y2) 픽셀
     mask:       np.ndarray | None          # HxW bool (세그멘테이션 마스크)
@@ -76,15 +76,16 @@ class Detection:
 | id | 이름 |
 |----|------|
 | 0 | Pallet (팔레트) |
-| 1 | Carton (종이박스) |
-| 2 | Tote (토트박스) |
-| 3 | Shrink Wrap (슈링크랩) |
+| 1 | Slip Sheet (슬립시트) |
+| 2 | Carton (종이박스) |
+| 3 | Tote (토트박스) |
+| 4 | Shrink Wrap (슈링크랩) |
 
 ## 6. 검출율이 낮게 나올 때 (체크리스트)
 
 가중치는 동일하므로, 결과가 다르면 **호출 방식**이 원인입니다. 이 모듈을 그대로 쓰면 아래가 전부 처리되지만, 직접 rfdetr 을 호출하던 코드라면 확인하세요:
 
-1. **`num_classes=4`** 로 로드했는가 — 안 맞으면 분류 헤드가 어긋나 검출이 망가집니다. (이 모듈 기본값 4)
+1. **`num_classes=5`** 로 로드했는가 — 안 맞으면 분류 헤드가 어긋나 검출이 망가집니다. (이 모듈 기본값 5)
 2. **이미지를 RGB 로** 넣었는가 — cv2 의 BGR 을 그대로 모델에 넣으면 안 됩니다. (이 모듈이 자동 변환)
 3. **임계 인자명이 `threshold=`** 인가 — rfdetr 은 `conf_threshold=` 를 무시하고 기본 0.5 를 씁니다. (이 모듈이 `threshold=` 로 전달)
 4. **입력 해상도** — 학습 해상도와 크게 다른 크기/비율로 넣으면 객체 스케일이 달라져 손해. 가능하면 원본 비율 유지.
@@ -92,7 +93,7 @@ class Detection:
 ## 7. 파라미터
 
 ```python
-Detector(weights, num_classes=4, device=None, resolution=None)
+Detector(weights, num_classes=5, device=None, resolution=None)
 #   device     : "cuda" / "cpu" / None(자동)
 #   resolution : 입력 해상도 override. None=모델 기본(권장). 학습과 다르게 주지 말 것.
 

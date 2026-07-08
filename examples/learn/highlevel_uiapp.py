@@ -15,7 +15,7 @@ import cv2
 from dr_onsite_adap import OnsiteSession
 from dr_onsite_adap.runtime.session import ReplaySource
 
-WEIGHTS = "/home/dr/lee3/thirdtask/lora_weights_b1/continual_master_v9_full.pth"
+WEIGHTS = "/home/dr/lee3/thirdtask/lora_weights_b1/continual_master_v11.pth"
 DEVICE = "cpu"        # 데모는 GPU가 학습중이라 cpu. 실전은 None(자동 cuda).
 
 # 카메라 없으면 ReplaySource 주입. 카메라 있으면 source 인자를 아예 빼면 SDK 가 카메라를 연다.

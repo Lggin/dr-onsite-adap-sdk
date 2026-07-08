@@ -48,12 +48,11 @@ def main():
     valid_p = os.path.join(data_dir, "valid", "_annotations.coco.json")
     test_p = os.path.join(data_dir, "test", "_annotations.coco.json")
 
-    # 처음(데이터셋 없음)이면 빈 COCO(4클래스)로 생성 → 맨바닥에서 라벨→학습 가능.
+    # 처음(데이터셋 없음)이면 빈 COCO 로 생성 → 맨바닥에서 라벨→학습 가능.
+    # config.CLASSES 단일 소스에서 파생(v11: 5클래스 0:Pallet..4:Shrink Wrap).
     if not os.path.exists(train_p):
-        cats = [{"id": 0, "name": "Box", "supercategory": "object"},
-                {"id": 1, "name": "Tote Box", "supercategory": "object"},
-                {"id": 2, "name": "Shrink Wrap", "supercategory": "object"},
-                {"id": 3, "name": "Pallet", "supercategory": "object"}]
+        cats = [{"id": cid, "name": name, "supercategory": "object"}
+                for cid, (name, _c) in sorted(config.CLASSES.items())]
         for sp_p in (train_p, valid_p, test_p):
             os.makedirs(os.path.dirname(sp_p), exist_ok=True)
             with open(sp_p, "w") as f:

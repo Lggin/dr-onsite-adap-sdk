@@ -1,4 +1,4 @@
-"""depal_detect — 디팔레타이징 검출 facade (Pallet / Carton / Tote / Shrink Wrap).
+"""depal_detect — 디팔레타이징 검출 facade (Pallet / Slip Sheet / Carton / Tote / Shrink Wrap).
 
 가중치는 같은데 코드마다 검출율이 달라지는 문제를 막기 위해, 모델 로드·전처리·
 임계·클래스 설정을 **한 곳에 캡슐화**한다. 이 파일 + 가중치 파일만 있으면 누가
@@ -10,7 +10,7 @@
 -----------
     from depal_detect import Detector
 
-    det = Detector("continual_master_v9_full.pth")     # device 자동(cuda 우선)
+    det = Detector("continual_master_v11.pth")     # device 자동(cuda 우선)
     results = det.detect("frame.jpg")                   # 경로 / BGR ndarray / RGB ndarray
     for r in results:
         print(r.class_name, round(r.confidence, 2), r.bbox)   # r.mask(HxW bool)도 있음
@@ -19,10 +19,10 @@
 
 CLI
 ---
-    python depal_detect.py frame.jpg --weights continual_master_v9_full.pth --threshold 0.5 --save out.jpg
+    python depal_detect.py frame.jpg --weights continual_master_v11.pth --threshold 0.5 --save out.jpg
 
 주의 (남이 쓸 때 검출율 떨어지는 흔한 원인 — 이 모듈이 전부 처리함)
-  * num_classes 는 가중치와 같아야 함(여기 기본 4). 안 맞으면 헤드 어긋나 검출 망가짐.
+  * num_classes 는 가중치와 같아야 함(여기 기본 5). 안 맞으면 헤드 어긋나 검출 망가짐.
   * cv2 로 읽은 이미지는 BGR → 모델엔 RGB 로 넣어야 함(여기서 변환).
   * rfdetr 의 임계 인자명은 `threshold=` (conf_threshold 아님).
 """
@@ -36,9 +36,9 @@ import numpy as np
 import torch
 from rfdetr import RFDETRSegMedium
 
-# 학습 시 클래스 순서와 동일해야 한다(가중치에 박혀 있음). v10~ 새 순서.
-CLASS_NAMES = {0: "Pallet", 1: "Carton", 2: "Tote", 3: "Shrink Wrap"}
-_CLASS_BGR = {0: (50, 100, 160), 1: (0, 255, 0), 2: (255, 165, 0), 3: (0, 0, 255)}
+# 학습 시 클래스 순서와 동일해야 한다(가중치에 박혀 있음). v11~ 5클래스 순서.
+CLASS_NAMES = {0: "Pallet", 1: "Slip Sheet", 2: "Carton", 3: "Tote", 4: "Shrink Wrap"}
+_CLASS_BGR = {0: (50, 100, 160), 1: (255, 0, 255), 2: (0, 255, 0), 3: (255, 165, 0), 4: (0, 0, 255)}
 
 
 @dataclass
@@ -57,9 +57,9 @@ class Detector:
     Parameters
     ----------
     weights : str
-        학습된 가중치 경로(예: continual_master_v9_full.pth).
+        학습된 가중치 경로(예: continual_master_v11.pth).
     num_classes : int
-        가중치의 클래스 수. 기본 4(Box/Tote/Wrap/Pallet). **가중치와 반드시 일치.**
+        가중치의 클래스 수. 기본 5(Pallet/Slip Sheet/Carton/Tote/Shrink Wrap). **가중치와 반드시 일치.**
     device : str | None
         "cuda"/"cpu". None 이면 가능하면 cuda 자동.
     resolution : int | None
@@ -67,7 +67,7 @@ class Detector:
         다르게 주지 말 것(검출 스케일이 달라짐).
     """
 
-    def __init__(self, weights: str, num_classes: int = 4,
+    def __init__(self, weights: str, num_classes: int = 5,
                  device: str | None = None, resolution: int | None = None):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         kw = {"num_classes": num_classes, "pretrain_weights": weights,

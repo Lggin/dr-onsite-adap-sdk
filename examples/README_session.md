@@ -13,14 +13,14 @@ UI 를 올리는 팀을 위한 **high-level API**. SDK 가 **카메라 + 검출/
 ## 1. 설치 / 준비
 ```bash
 pip install -e .            # 또는 사내 배포 방식
-# 가중치(continual_master_v10.pth)는 담당자에게 받아 경로 지정
+# 가중치(continual_master_v11.pth)는 담당자에게 받아 경로 지정
 ```
 
 ## 2. 빠른 시작
 ```python
 from dr_onsite_adap import OnsiteSession
 
-sess = OnsiteSession(weights="continual_master_v10.pth", geom_algo="v2")
+sess = OnsiteSession(weights="continual_master_v11.pth", geom_algo="v2")
 
 @sess.on_result                       # PUSH: 프레임마다 호출
 def _(scene):
