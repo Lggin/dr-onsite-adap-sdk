@@ -23,6 +23,8 @@ import numpy as np
 from .. import config
 from .._logging import setup_cli_logging
 from . import cameras
+from .clustering import (add_prototype, bank_count, load_prototypes,
+                         prototype_feature, save_prototypes)
 from .detect import build_detections_3d, draw_state, run_detection
 from .smoothing import DetectionSmoother
 from .geometry import estimate_up_dir
@@ -131,18 +133,20 @@ class _DetectThread(QThread):
     failed = Signal(str)
 
     def __init__(self, model, color, depth, intr, up, with_pointcloud=True,
-                 cluster=False):
+                 cluster=False, prototypes=None):
         super().__init__()
         self._args = (model, color, depth, intr, up)
         self._wp = with_pointcloud
         self._cluster = cluster
+        self._prototypes = prototypes
 
     def run(self):
         model, color, depth, intr, up = self._args
         try:
             h, w = color.shape[:2]
             state = run_detection(model, color, depth, intr, up, h, w,
-                                  with_pointcloud=self._wp, cluster=self._cluster)
+                                  with_pointcloud=self._wp, cluster=self._cluster,
+                                  prototypes=self._prototypes)
             self.done.emit(state, intr)
         except Exception as e:  # noqa: BLE001
             self.failed.emit(f"검출 실패: {e}")
@@ -241,7 +245,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._last_t = time.time()
         self._busy = False
         self.live_mode = False               # 실시간 연속 검출 토글
-        self.group_mode = False              # 클래스별 외형 그룹화 토글
+        self.group_mode = False              # 클래스별 그룹화 토글
+        self.prototypes = load_prototypes()  # 정답(프로토타입) 뱅크 — 있으면 최근접 배정
+        self._sel_row = -1                   # 검출 표에서 선택된 행(정답 등록 대상)
         self.smoother = DetectionSmoother()   # 실시간 깜빡임 방지(시간축 안정화)
 
         self._build_ui()
@@ -278,6 +284,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_group.setToolTip("검출(분류) 후 같은 클래스 안에서 색·질감·크기가 비슷한 것끼리 "
                                   "그룹색으로 묶어 표시(예: Carton#0, Carton#1). 다시 누르면 끔.")
         self.btn_group.toggled.connect(self._toggle_group)
+        self.btn_proto = QtWidgets.QPushButton("➕  정답 등록")
+        self.btn_proto.setToolTip("아래 검출 표에서 객체(행)를 고르고 누르면, 그 객체를 그 클래스의 "
+                                  "'정답(프로토타입)'으로 등록. 이후 그룹화는 정답에 최근접 배정.")
+        self.btn_proto.clicked.connect(self.do_register_prototype)
+        self.btn_proto_clear = QtWidgets.QPushButton("🗑  정답 비우기")
+        self.btn_proto_clear.setToolTip("등록된 정답을 모두 지움(비지도 그룹화로 되돌아감).")
+        self.btn_proto_clear.clicked.connect(self.do_clear_prototypes)
         self.btn_3d = QtWidgets.QPushButton("🧊  3D 보기")
         self.btn_3d.clicked.connect(self.do_3d)
         self.btn_roi = QtWidgets.QPushButton("▭  ROI 지정")
@@ -299,7 +312,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_dump.setToolTip("현재 프레임의 RGB+depth+검출마스크를 ~/geom_captures/ 에 저장 "
                                  "(기하/클러스터링 오프라인 튜닝용)")
         self.btn_dump.clicked.connect(self.do_dump)
-        for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_3d, self.btn_roi,
+        for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_proto,
+                  self.btn_proto_clear, self.btn_3d, self.btn_roi,
                   self.btn_roi_clear, self.btn_label, self.btn_up, self.btn_reload,
                   self.btn_dump, self.btn_clear):
             b.setMinimumHeight(40)
@@ -322,6 +336,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setMaximumHeight(160)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.table.cellClicked.connect(lambda r, _c: setattr(self, "_sel_row", r))
         lv.addWidget(self.table, 0)
         self.tabs.addTab(live, "실시간 인식")
 
@@ -344,7 +360,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_model_ready(self, model, labeler):
         self.model = model
         self.labeler = labeler
-        for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_3d, self.btn_roi,
+        for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_proto,
+                  self.btn_proto_clear, self.btn_3d, self.btn_roi,
                   self.btn_roi_clear, self.btn_up, self.btn_reload, self.btn_dump, self.btn_clear):
             b.setEnabled(True)
         self.btn_label.setEnabled(labeler is not None)
@@ -426,9 +443,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._busy = True
         color, depth, intr, up = self.last_pack
         # 라이브(연속)에선 3D 점구름 생략해 가속, 단발 검출에선 계산('v' 3D 보기용).
+        protos = self.prototypes if (self.group_mode and self.prototypes) else None
         self.detect_thread = _DetectThread(self.model, color.copy(), depth.copy(),
                                            intr, up, with_pointcloud=not self.live_mode,
-                                           cluster=self.group_mode)
+                                           cluster=self.group_mode, prototypes=protos)
         self.detect_thread.done.connect(self._on_detect_done)
         self.detect_thread.failed.connect(self._on_detect_fail)
         self.detect_thread.start()
@@ -454,10 +472,55 @@ class MainWindow(QtWidgets.QMainWindow):
         """클래스별 외형 그룹화 토글. 켜면 다음 검출부터 그룹색/라벨로 표시."""
         self.group_mode = checked
         self.smoother.reset()            # 색/라벨이 바뀌므로 트랙 초기화
+        mode = "정답 최근접" if self.prototypes else "비지도"
         self.btn_group.setText("🎨  그룹화 끄기" if checked else "🎨  클래스별 그룹화")
-        self._set_status("● 클래스별 그룹화 ON" if checked else "클래스별 그룹화 OFF")
+        self._set_status(f"● 클래스별 그룹화 ON ({mode})" if checked else "클래스별 그룹화 OFF")
         # 정지 상태에 직전 검출이 있으면 즉시 재검출해 반영(라이브면 다음 프레임에 자동 적용).
         if not self.live_mode and self.model is not None and self.last_pack is not None:
+            self._kick_detect()
+
+    def do_register_prototype(self):
+        """검출 표에서 고른 객체를 그 클래스의 '정답(프로토타입)'으로 등록."""
+        if self.state is None:
+            self._set_status("먼저 '검출'로 객체를 잡으세요")
+            return
+        act = self.state.get("active", [])
+        r = self._sel_row
+        if r < 0 or r >= len(act):
+            self._set_status("아래 검출 표에서 등록할 객체(행)를 먼저 클릭하세요")
+            return
+        det = act[r]
+        frame = self.state.get("frame")
+        if frame is None:
+            frame = self.last_color_raw
+        if frame is None:
+            self._set_status("프레임이 없습니다")
+            return
+        res = det["res"]
+        long_mm, short_mm = res["long_side_mm"], res["short_side_mm"]
+        cur = len(self.prototypes.get(str(det["cid"]), []))
+        default = f"{det['name']}#{cur}"
+        name, ok = QtWidgets.QInputDialog.getText(
+            self, "정답 등록", f"'{det['name']}' 정답 이름:", text=default)
+        if not ok or not name.strip():
+            return
+        feat = prototype_feature(det["mask"].astype(bool), frame, (long_mm, short_mm))
+        add_prototype(self.prototypes, det["cid"], name.strip(), feat, long_mm, short_mm)
+        save_prototypes(self.prototypes)
+        self._set_status(f"✅ 정답 등록: {name.strip()} ({long_mm:.0f}x{short_mm:.0f}mm) "
+                         f"· 총 {bank_count(self.prototypes)}개")
+        if self.group_mode and not self.live_mode:
+            self._kick_detect()
+
+    def do_clear_prototypes(self):
+        """등록된 정답 전체 삭제 → 비지도 그룹화로 복귀."""
+        if not self.prototypes:
+            self._set_status("등록된 정답이 없습니다")
+            return
+        self.prototypes = {}
+        save_prototypes(self.prototypes)
+        self._set_status("정답 전체 삭제 — 비지도 그룹화로 복귀")
+        if self.group_mode and not self.live_mode:
             self._kick_detect()
 
     def _on_detect_done(self, state, intr):

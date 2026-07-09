@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from .. import config
-from .clustering import cluster_by_appearance, group_color
+from .clustering import assign_to_prototypes, cluster_by_appearance, group_color
 from .geometry import estimate_top_face, estimate_top_face_v2
 from .occlusion import compute_occlusion_by_mask
 from .viz import (
@@ -27,7 +27,8 @@ from .viz import (
 
 
 def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
-                  with_pointcloud=True, conf_threshold=None, cluster=False):
+                  with_pointcloud=True, conf_threshold=None, cluster=False,
+                  prototypes=None):
     """Run the model + top-face estimation + mask-based occlusion once.
 
     Returns a state dict that the main loop overlays onto every frame
@@ -38,6 +39,7 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
 
     cluster: True 면 픽 대상(active)을 **같은 클래스 안에서** 외형(색·질감·크기)으로
     서브그룹핑해 각 det 에 group_id/group_label 을 달고 마스크/뱃지를 그룹색으로 칠한다.
+    prototypes: 정답 뱅크(dict). 주면 클러스터링 대신 **클래스별 최근접 정답 배정**(그룹명=정답명).
     """
     # 윗면 추정 알고리즘 선택(config.GEOM_ALGO): "v2"=평면 fit 방식, 그 외=기존 v1.
     estimate = (estimate_top_face_v2 if config.GEOM_ALGO == "v2"
@@ -121,10 +123,14 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
     active = [c for k, c in enumerate(collected) if k not in occluded_idx]
 
     # 외형 클러스터링(옵트인): 같은 클래스 안에서 색·질감·크기로 서브그룹 → 그룹색/라벨.
-    if cluster and active:
+    if (cluster or prototypes) and active:
+        masks_a = [d["mask"] for d in active]
+        cids_a = [d["cid"] for d in active]
         sizes = [(d["res"]["long_side_mm"], d["res"]["short_side_mm"]) for d in active]
-        gids, glabels = cluster_by_appearance(
-            [d["mask"] for d in active], [d["cid"] for d in active], color, sizes_mm=sizes)
+        if prototypes:   # 정답 뱅크 있으면 최근접 배정(클러스터링보다 우선)
+            gids, glabels = assign_to_prototypes(masks_a, cids_a, color, sizes, prototypes)
+        else:
+            gids, glabels = cluster_by_appearance(masks_a, cids_a, color, sizes_mm=sizes)
         active_mask_ids = set()
         for d, g, l in zip(active, gids, glabels):
             d["group_id"] = g
