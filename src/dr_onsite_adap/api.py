@@ -36,6 +36,7 @@ import cv2
 import numpy as np
 
 from . import config
+from .runtime.clustering import cluster_by_appearance
 from .runtime.detect import run_detection
 from .runtime.inference import SegModel
 from .runtime.viz import (
@@ -59,6 +60,8 @@ class Detection:
     confidence: float
     bbox: tuple[int, int, int, int]          # (x1, y1, x2, y2) 픽셀
     mask: np.ndarray | None = None           # HxW bool
+    group_id: int = -1                       # 외형 클러스터(cluster=True 일 때). -1=미할당
+    group_label: str = ""                    # '<클래스명>#<서브그룹>' 예 'Carton#0'
 
 
 @dataclass
@@ -75,6 +78,8 @@ class PickPose:
     short_side_mm: float
     top_normal_3d: tuple[float, float, float] | None = None   # v2 만(그리퍼 접근축)
     mask: np.ndarray | None = None
+    group_id: int = -1                       # 외형 클러스터(cluster=True 일 때). -1=미할당
+    group_label: str = ""                    # '<클래스명>#<서브그룹>' 예 'Carton#0'
 
 
 @dataclass
@@ -123,17 +128,29 @@ def _scene_from_state(state, intrinsics) -> "SceneResult":
                        inference_time=state["inference_time"], intrinsics=tuple(intrinsics))
 
 
+# 그룹 색 팔레트(외형 클러스터 시각화 — group_id 로 인덱싱). 클래스 색과 별개.
+_GROUP_PALETTE = [(0, 255, 0), (0, 140, 255), (255, 80, 80), (255, 0, 255),
+                  (0, 255, 255), (180, 180, 0), (203, 192, 255), (128, 0, 255),
+                  (0, 215, 255), (128, 128, 0)]
+
+
 def draw_scene(color_bgr, result):
-    """검출(Detection 리스트) 또는 SceneResult 를 BGR 이미지에 그려 반환. UI 비종속."""
+    """검출(Detection 리스트) 또는 SceneResult 를 BGR 이미지에 그려 반환. UI 비종속.
+
+    group_id 가 있으면(cluster=True) 클래스 색 대신 **그룹 색**으로 칠하고 라벨에 그룹명을 붙인다.
+    """
     vis = color_bgr.copy()
 
     def _color(cid):
         entry = config.CLASSES.get(cid)
         return entry[1] if entry else (0, 255, 0)
 
+    def _obj_color(cid, gid):
+        return _GROUP_PALETTE[gid % len(_GROUP_PALETTE)] if gid is not None and gid >= 0 else _color(cid)
+
     if isinstance(result, SceneResult):
         for i, p in enumerate(result.pick_targets, 1):
-            col = _color(p.class_id)
+            col = _obj_color(p.class_id, p.group_id)
             if p.mask is not None:
                 overlay_mask(vis, p.mask, col)
             draw_top_center(vis, p.center_2d)
@@ -144,8 +161,9 @@ def draw_scene(color_bgr, result):
                     np.asarray(p.short_axis_3d, dtype=float),
                     p.long_side_mm, p.short_side_mm, result.intrinsics)
             u, v = p.center_2d
+            tag = f" {p.group_label}" if p.group_label else ""
             draw_styled_text(
-                vis, f"[{i}] {p.class_name} {p.long_side_mm:.0f}x{p.short_side_mm:.0f}mm",
+                vis, f"[{i}] {p.class_name}{tag} {p.long_side_mm:.0f}x{p.short_side_mm:.0f}mm",
                 (u + 10, v - 10), col, scale=0.5, thickness=1)
         for pal in result.pallets:
             if pal.center_2d is not None:
@@ -156,12 +174,13 @@ def draw_scene(color_bgr, result):
                              scale=1.0, thickness=2)
     else:  # list[Detection]
         for d in result:
-            col = _color(d.class_id)
+            col = _obj_color(d.class_id, d.group_id)
             if d.mask is not None:
                 overlay_mask(vis, d.mask, col)
             x1, y1, x2, y2 = d.bbox
             cv2.rectangle(vis, (x1, y1), (x2, y2), col, 2)
-            draw_styled_text(vis, f"{d.class_name} {d.confidence:.2f}",
+            tag = f" {d.group_label}" if d.group_label else ""
+            draw_styled_text(vis, f"{d.class_name}{tag} {d.confidence:.2f}",
                              (x1, max(15, y1 - 6)), col, scale=0.5, thickness=1)
     return vis
 
@@ -199,8 +218,13 @@ class OnsiteDetector:
 
     # ── (A) 2D 검출만 ──
     def detect(self, color_bgr: np.ndarray,
-               conf_threshold: float | None = None) -> list[Detection]:
-        """depth 없이 2D 검출만. Detection 리스트 반환(팔레트 포함, 가림필터 없음)."""
+               conf_threshold: float | None = None,
+               cluster: bool = False) -> list[Detection]:
+        """depth 없이 2D 검출만. Detection 리스트 반환(팔레트 포함, 가림필터 없음).
+
+        cluster=True 면 검출 후 **같은 클래스 안에서** 외형(색·질감·크기)으로 서브그룹핑해
+        각 Detection 의 group_id/group_label 을 채운다(분류 후 클러스터링).
+        """
         thr = conf_threshold if conf_threshold is not None else self.conf_threshold
         preds = self.model.predict(color_bgr, conf_threshold=thr)
         xyxy = np.asarray(preds.xyxy)
@@ -216,13 +240,22 @@ class OnsiteDetector:
                 bbox=(x1, y1, x2, y2),
                 mask=(masks[i].astype(bool) if masks is not None else None),
             ))
+        if cluster and out:
+            gids, labels = cluster_by_appearance(
+                [d.mask for d in out], [d.class_id for d in out], color_bgr)
+            for d, g, l in zip(out, gids, labels):
+                d.group_id, d.group_label = g, l
         return out
 
     # ── (B) 검출 + 윗면 픽 자세 ──
     def process(self, color_bgr: np.ndarray, depth_m: np.ndarray,
                 intrinsics, up_dir=None, conf_threshold: float | None = None,
-                with_pointcloud: bool = False) -> SceneResult:
-        """RGB-D 한 프레임 → 검출 + 가림 필터 + 윗면 픽 자세. SceneResult 반환."""
+                with_pointcloud: bool = False, cluster: bool = False) -> SceneResult:
+        """RGB-D 한 프레임 → 검출 + 가림 필터 + 윗면 픽 자세. SceneResult 반환.
+
+        cluster=True 면 픽 대상을 **같은 클래스 안에서** 외형(색·질감·크기)으로 서브그룹핑해
+        각 PickPose 의 group_id/group_label 을 채운다(분류 후 클러스터링).
+        """
         h, w = color_bgr.shape[:2]
         up = up_dir if up_dir is not None else config.UP_DIR_CAMERA_FRAME
         thr = conf_threshold if conf_threshold is not None else self.conf_threshold
@@ -230,7 +263,14 @@ class OnsiteDetector:
                               up, h, w, with_pointcloud=with_pointcloud,
                               conf_threshold=thr)
 
-        return _scene_from_state(state, tuple(intrinsics))
+        scene = _scene_from_state(state, tuple(intrinsics))
+        if cluster and scene.pick_targets:
+            gids, labels = cluster_by_appearance(
+                [p.mask for p in scene.pick_targets],
+                [p.class_id for p in scene.pick_targets], color_bgr)
+            for p, g, l in zip(scene.pick_targets, gids, labels):
+                p.group_id, p.group_label = g, l
+        return scene
 
     # ── 시각화 ──
     def draw(self, color_bgr: np.ndarray, result) -> np.ndarray:

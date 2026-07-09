@@ -328,14 +328,14 @@ def estimate_top_face_v2(mask, depth_m, intrinsics, cfg, up_dir=None,
     rel = Qf - c
     p2 = np.stack([rel @ e1, rel @ e2], axis=1)
 
-    # 6. 방향 = 평면 내 점들의 2D-PCA 주축(각도 스윕 대신 한 번에 — 객체당 비용 대폭↓).
-    #    스윕(0~90° 45스텝 × 백분위 2회)이 v2 의 주 병목이었음. 직사각형 면에선 최대분산
-    #    방향 = 긴 변 방향이라 minAreaRect 와 사실상 일치하면서 O(1) 로 끝난다.
-    #    크기/중심 = 그 축에 투영한 점들의 trim 백분위 구간(가장자리 이상치 제거).
-    cov = np.cov(p2.T)                       # 2x2 평면 내 공분산
-    _, evecs = np.linalg.eigh(cov)           # 오름차순 → 마지막 열 = 최대분산(긴 축)
-    a1 = evecs[:, -1]
-    a1 = a1 / (np.linalg.norm(a1) + 1e-12)
+    # 6. 방향 = 평면 내 점들의 minAreaRect(회전 캘리퍼스) 변 방향 — 직사각형 모서리에 정렬.
+    #    ⚠️ 2D-PCA(질량분포 주축)는 정사각형에 가까울수록 주축이 퇴화해 yaw 가 크게 튄다
+    #    (실측: aspect~1 에서 minAreaRect 대비 40°+ 오차, aspect≥2 면 <2°). minAreaRect 는
+    #    변에 정렬돼 정사각형에서도 안정. 병목이던 "각도 스윕(0~90° × 백분위)"과 달리
+    #    minAreaRect 는 O(n) 수준이라 스윕 없이 빠르다. 크기/중심은 그 축의 trim 백분위 유지.
+    (_rc, (_rw, _rh), _rot) = cv2.minAreaRect(p2.astype(np.float32))
+    theta = np.radians(_rot if _rw >= _rh else _rot + 90.0)   # 긴 변 방향
+    a1 = np.array([np.cos(theta), np.sin(theta)])
     a2 = np.array([-a1[1], a1[0]])           # 직교 단위벡터
     pu = p2 @ a1
     pv = p2 @ a2
