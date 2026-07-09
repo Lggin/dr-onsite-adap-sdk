@@ -295,9 +295,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_reload = QtWidgets.QPushButton("♻  새 가중치 로드")
         self.btn_reload.setToolTip("학습·병합으로 만든 새 가중치(DEPAL_FINAL)를 재시작 없이 적용 — 학습 전/후 비교용")
         self.btn_reload.clicked.connect(self.do_reload)
+        self.btn_dump = QtWidgets.QPushButton("📸  RGB-D 덤프")
+        self.btn_dump.setToolTip("현재 프레임의 RGB+depth+검출마스크를 ~/geom_captures/ 에 저장 "
+                                 "(기하/클러스터링 오프라인 튜닝용)")
+        self.btn_dump.clicked.connect(self.do_dump)
         for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_3d, self.btn_roi,
                   self.btn_roi_clear, self.btn_label, self.btn_up, self.btn_reload,
-                  self.btn_clear):
+                  self.btn_dump, self.btn_clear):
             b.setMinimumHeight(40)
             b.setEnabled(False)
             side.addWidget(b)
@@ -341,7 +345,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.model = model
         self.labeler = labeler
         for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_3d, self.btn_roi,
-                  self.btn_roi_clear, self.btn_up, self.btn_reload, self.btn_clear):
+                  self.btn_roi_clear, self.btn_up, self.btn_reload, self.btn_dump, self.btn_clear):
             b.setEnabled(True)
         self.btn_label.setEnabled(labeler is not None)
         self._set_status("준비 완료 — '검출' 또는 '실시간 검출'을 누르세요")
@@ -483,6 +487,34 @@ class MainWindow(QtWidgets.QMainWindow):
                     f"({x*100:+.1f}, {y*100:+.1f}, {z*100:+.1f})"]
             for c, v in enumerate(vals):
                 self.table.setItem(i, c, QtWidgets.QTableWidgetItem(v))
+
+    def do_dump(self):
+        """현재 프레임의 RGB+depth+검출마스크를 ~/geom_captures/rgbd_*.npz 로 저장.
+        키보드 앱 'g' 와 동일 포맷(오프라인 기하/클러스터링 튜닝용)."""
+        import os
+        if self.model is None or self.last_pack is None:
+            self._set_status("먼저 카메라/모델 준비 후 프레임이 들어와야 합니다")
+            return
+        color, depth, intr, up = self.last_pack
+        cap_dir = os.path.expanduser(os.environ.get("DEPAL_CAPTURE_DIR", "~/geom_captures"))
+        os.makedirs(cap_dir, exist_ok=True)
+        try:
+            preds = self.model.predict(color, conf_threshold=config.CONF_THRES)
+            masks = getattr(preds, "mask", None)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            out = os.path.join(cap_dir, f"rgbd_{ts}.npz")
+            np.savez_compressed(
+                out, rgb=color, depth=depth.astype(np.float32),
+                intrinsics=np.asarray(intr, dtype=np.float64),
+                up_dir=np.asarray(up, dtype=np.float64),
+                masks=(np.zeros((0,) + depth.shape[:2], np.uint8)
+                       if masks is None else masks.astype(np.uint8)),
+                class_ids=np.asarray(preds.class_id, dtype=np.int32),
+                confidences=np.asarray(preds.confidence, dtype=np.float32))
+            n = 0 if masks is None else len(masks)
+            self._set_status(f"📸 저장: {out}  (검출 {n}개)")
+        except Exception as e:  # noqa: BLE001
+            self._set_status(f"⚠ 덤프 실패: {e}")
 
     # ── 3D ──
     def do_3d(self):
