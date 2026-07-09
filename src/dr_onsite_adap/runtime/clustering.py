@@ -1,12 +1,16 @@
-"""외형 기반 클러스터링 — 검출된 객체를 '같은 클래스 안에서' 색·질감·크기로 서브그룹핑.
+"""외형 기반 클러스터링 — 검출된 객체를 '같은 클래스 안에서' 물리크기·색·질감으로 서브그룹핑.
 
 분류(검출)가 먼저다. 여기서는 클래스별로 나눈 뒤 각 클래스 **안에서만** 비슷한 것끼리
-묶는다 (다른 클래스는 절대 안 섞임). 학습 없음 — 결합 특징 벡터 + z-정규화 + 블록 가중 +
-union-find 거리 임계. 특징:
-  * 색: Lab 중앙값 (밝기 L 을 config.CLUSTER_L_WEIGHT 로 다운웨이트 → 조명차로 같은 종류가
-        갈리는 것 완화, 색상/채도 a·b 는 유지)
-  * 질감: 마스크 내 그레이 통계 (표준편차·평균 그래디언트·라플라시안 분산·엔트로피, 회전 불변)
-  * 크기: 종횡비 + log면적 (마스크 2D 기준, 스케일 견고)
+묶는다 (다른 클래스는 절대 안 섞임). 학습 없음 — 결합 특징 벡터 + 고정 스케일 정규화 +
+블록 가중 + union-find 거리 임계.
+
+특징(7차원):
+  * 색(3): Lab 중앙값 (밝기 L 은 CLUSTER_L_WEIGHT 로 다운웨이트 → 조명차 완화)
+  * 질감(2): **조명 강건** — 로그-하이패스 에너지(=log 영역에서 저주파 조명 제거 후 인쇄 디테일
+             std) + Canny 에지 밀도(글씨/획 양). 기존 std_gray 등은 밝기 그라데이션에 오염돼 폐기.
+  * 크기(2): **물리 치수(long/short mm)** — 기하에서 받음(시점 불변, 상자 종류의 최강 단서).
+             mm 를 못 받으면(2D 검출) 마스크 minAreaRect 픽셀로 폴백(장면 중앙값 대비 상대).
+정규화 = 의미 기반 고정 스케일(구분 문턱). 크기 우선 가중이 기본.
 출력: 객체별 group_id(전역 고유 int) + group_label('<클래스명>#<서브그룹>', 예 'Carton#0').
 """
 import cv2
@@ -14,11 +18,9 @@ import numpy as np
 
 from .. import config
 
-# 차원별 전역 스케일(= final_dataset_v11 객체 1809개 기준 std). per-scene 정규화는 객체 수가
-# 적으면(예: 한 클래스에 2~3개) std 가 작아 미세차가 증폭돼 다 쪼개진다 → 전역 고정 스케일로
-# 정규화해 객체 수와 무관하게 일관된 거리. 특징 순서: [L*, a, b, std_gray, mean_grad,
-# lap_var, entropy, aspect, log_area]
-_SCALE = np.array([18.206, 13.741, 16.841, 12.042, 24.471, 1460.753, 0.449, 1.349, 1.232])
+# 색·질감 고정 스케일(=구분 문턱). 순서 [L*, a, b, logHP, edge].
+_SCALE_COLOR = np.array([18.0, 14.0, 17.0])
+_SCALE_TEX = np.array([0.04, 8.0])
 
 # 그룹 시각화 색 팔레트(BGR) — group_id 로 인덱싱. 외형 서브그룹 구분용.
 # ⚠️ 클래스 색(Carton=초록, Wrap=빨강, Slip=마젠타, Tote=하늘, Pallet=탄)과 겹치지 않게 고름
@@ -42,34 +44,35 @@ def _uf_find(par, a):
     return a
 
 
-def _descriptor(mask, gray, lab, gradmag, lap):
-    """객체 하나의 결합 특징 벡터(색3 + 질감4 + 크기2)."""
-    er = cv2.erode(mask.astype(np.uint8), np.ones((5, 5), np.uint8))  # 가장자리 색 오염 제거
+def _frame_maps(color_bgr):
+    """프레임당 1회: 그레이·Lab·로그하이패스 디테일·Canny 에지."""
+    gray = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2GRAY)
+    lab = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2LAB)
+    sigma = max(6.0, 0.02 * color_bgr.shape[1])          # 조명(저주파) 추정 블러 폭 ~ 이미지폭 비례
+    g = np.log1p(gray.astype(np.float32))                # 곱셈 조명 → 덧셈(homomorphic)
+    detail = g - cv2.GaussianBlur(g, (0, 0), sigma)      # 저주파 조명 제거 → 인쇄/반사율 디테일
+    edges = cv2.Canny(gray, 40, 120).astype(np.float32)  # 날카로운 경계(글씨)만; 완만한 그늘 무시
+    return gray, lab, detail, edges
+
+
+def _descriptor(mask, lab, detail, edges, size_pair):
+    """객체 하나의 결합 특징(색3 + 질감2 + 크기2). size_pair=(long,short) mm 또는 픽셀."""
+    er = cv2.erode(mask.astype(np.uint8), np.ones((5, 5), np.uint8))  # 가장자리 그림자 배제
     sel = er > 0
     if int(sel.sum()) < 20:
         sel = mask.astype(bool)
-    # 색: Lab 중앙값(반사/그림자 강건), 밝기 L 다운웨이트
     col = np.median(lab[sel], axis=0).astype(float)
     col[0] *= config.CLUSTER_L_WEIGHT
-    # 질감: 회전 불변 그레이 통계
-    g = gray[sel].astype(float)
-    hist, _ = np.histogram(g, bins=16, range=(0, 255))
-    p = hist / (hist.sum() + 1e-9)
-    ent = float(-(p * np.log(p + 1e-12)).sum())
-    tex = [float(g.std()), float(gradmag[sel].mean()), float(lap[sel].var()), ent]
-    # 크기: 종횡비 + log면적
-    ys, xs = np.where(sel)
-    (_c, (w, h), _r) = cv2.minAreaRect(np.stack([xs, ys], 1).astype(np.float32))
-    long_s, short_s = max(w, h), min(w, h)
-    size = [long_s / max(short_s, 1.0), float(np.log(int(sel.sum()) + 1.0))]
-    return np.array(list(col) + tex + size, dtype=float)
+    tex = [float(detail[sel].std()), float(edges[sel].mean())]
+    return np.array([col[0], col[1], col[2], tex[0], tex[1],
+                     float(size_pair[0]), float(size_pair[1])], dtype=float)
 
 
-def cluster_by_appearance(masks, class_ids, color_bgr, cfg=config):
+def cluster_by_appearance(masks, class_ids, color_bgr, sizes_mm=None, cfg=config):
     """masks(list[HxW bool|None]) + class_ids → (group_ids: list[int], group_labels: list[str]).
 
-    클래스별로 나눠 각 클래스 안에서만 결합특징 유사도로 union-find 클러스터링.
-    입력 순서에 정렬된 리스트 반환. 특징 없음/너무 작은 마스크는 group_id=-1.
+    sizes_mm: 객체별 (long_mm, short_mm) 물리치수 리스트(기하에서). None 또는 원소 None 이면
+    그 객체는 2D 마스크 크기로 폴백. 클래스별로 나눠 각 클래스 안에서만 union-find 클러스터링.
     """
     n = len(masks)
     group_ids = [-1] * n
@@ -77,32 +80,49 @@ def cluster_by_appearance(masks, class_ids, color_bgr, cfg=config):
     if n == 0:
         return group_ids, group_labels
 
-    gray = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2GRAY)
-    lab = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2LAB)
-    gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
-    gradmag = np.sqrt(gx * gx + gy * gy)
-    lap = cv2.Laplacian(gray, cv2.CV_32F)
+    gray, lab, detail, edges = _frame_maps(color_bgr)
 
-    bw = np.array([cfg.CLUSTER_W_COLOR] * 3 + [cfg.CLUSTER_W_TEX] * 4
-                  + [cfg.CLUSTER_W_SIZE] * 2, dtype=float)
-    tau = cfg.CLUSTER_TAU
-
-    feats = [None] * n
+    # 크기값(물리 mm 우선, 없으면 minAreaRect 픽셀) 수집
+    have_phys = sizes_mm is not None
+    size_vals = [None] * n
+    feats_raw = [None] * n
     for i, m in enumerate(masks):
         if m is None or int(np.count_nonzero(m)) < cfg.CLUSTER_MIN_PX:
             continue
-        feats[i] = _descriptor(m, gray, lab, gradmag, lap)
+        sm = sizes_mm[i] if (have_phys and sizes_mm[i] is not None) else None
+        if sm is None:
+            ys, xs = np.where(m)
+            (_c, (w, h), _r) = cv2.minAreaRect(np.stack([xs, ys], 1).astype(np.float32))
+            sm = (max(w, h), min(w, h))
+            phys = False
+        else:
+            phys = True
+        size_vals[i] = (sm, phys)
+        feats_raw[i] = _descriptor(m.astype(bool), lab, detail, edges, sm)
+
+    valid = [i for i in range(n) if feats_raw[i] is not None]
+    if not valid:
+        return group_ids, group_labels
+
+    # 크기 스케일: 전부 물리면 고정 문턱(mm), 아니면 장면 중앙값 대비 상대(15%)
+    all_phys = all(size_vals[i][1] for i in valid)
+    if all_phys:
+        size_scale = cfg.CLUSTER_SIZE_SCALE_MM
+    else:
+        med_long = float(np.median([size_vals[i][0][0] for i in valid]))
+        size_scale = max(0.15 * med_long, 1.0)
+    scale = np.concatenate([_SCALE_COLOR, _SCALE_TEX, [size_scale, size_scale]])
+    bw = np.array([cfg.CLUSTER_W_COLOR] * 3 + [cfg.CLUSTER_W_TEX] * 2
+                  + [cfg.CLUSTER_W_SIZE] * 2, dtype=float)
+    tau = cfg.CLUSTER_TAU
 
     gid = 0
-    for cid in sorted({int(c) for c in class_ids}):
-        idxs = [i for i in range(n) if int(class_ids[i]) == cid and feats[i] is not None]
-        if not idxs:
-            continue
+    for cid in sorted({int(class_ids[i]) for i in valid}):
+        idxs = [i for i in valid if int(class_ids[i]) == cid]
         if len(idxs) == 1:
             local = [0]
         else:
-            Z = np.stack([feats[i] for i in idxs]) / _SCALE * bw   # 전역 고정 스케일 정규화 + 블록 가중
+            Z = np.stack([feats_raw[i] for i in idxs]) / scale * bw
             par = list(range(len(idxs)))
             for a in range(len(idxs)):
                 for b in range(a + 1, len(idxs)):

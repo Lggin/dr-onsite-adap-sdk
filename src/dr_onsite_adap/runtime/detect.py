@@ -122,8 +122,9 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
 
     # 외형 클러스터링(옵트인): 같은 클래스 안에서 색·질감·크기로 서브그룹 → 그룹색/라벨.
     if cluster and active:
+        sizes = [(d["res"]["long_side_mm"], d["res"]["short_side_mm"]) for d in active]
         gids, glabels = cluster_by_appearance(
-            [d["mask"] for d in active], [d["cid"] for d in active], color)
+            [d["mask"] for d in active], [d["cid"] for d in active], color, sizes_mm=sizes)
         active_mask_ids = set()
         for d, g, l in zip(active, gids, glabels):
             d["group_id"] = g

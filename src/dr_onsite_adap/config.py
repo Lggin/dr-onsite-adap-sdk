@@ -59,16 +59,18 @@ CLASSES = {
     4: ("Shrink Wrap", (0, 0, 255)),
 }
 
-# ── 외형 클러스터링(분류 후, 같은 클래스 안에서 색·질감·크기로 서브그룹) ──
+# ── 외형 클러스터링(분류 후, 같은 클래스 안에서 물리크기·색·질감으로 서브그룹) ──
 # 검출(분류)이 먼저 → 클래스별로 나눈 뒤 각 클래스 안에서만 비슷한 것끼리 묶는다(타 클래스 불혼합).
-# 결합 특징: 색(Lab 중앙값, 밝기 L 다운웨이트) + 질감(그레이 통계, 회전불변) + 크기(종횡비·log면적).
-# z-정규화 후 블록 가중 → 유클리드 거리 < CLUSTER_TAU 면 연결(union-find). 색 우선 기본값.
-CLUSTER_L_WEIGHT = float(os.environ.get("DEPAL_CLUSTER_L_WEIGHT", "0.35"))  # 밝기(L) 다운웨이트 → 조명차 완화
-CLUSTER_W_COLOR = float(os.environ.get("DEPAL_CLUSTER_W_COLOR", "1.2"))     # 색 가중(우선)
-CLUSTER_W_TEX = float(os.environ.get("DEPAL_CLUSTER_W_TEX", "0.8"))         # 질감 가중
-CLUSTER_W_SIZE = float(os.environ.get("DEPAL_CLUSTER_W_SIZE", "0.6"))       # 크기 가중
-CLUSTER_TAU = float(os.environ.get("DEPAL_CLUSTER_TAU", "3.0"))            # 연결 거리 임계(전역스케일 정규화 공간)
-CLUSTER_MIN_PX = int(os.environ.get("DEPAL_CLUSTER_MIN_PX", "60"))          # 이보다 작은 마스크는 그룹 제외
+# 결합 특징: 색(Lab 중앙값, 밝기 L 다운웨이트) + 질감(로그-하이패스·Canny, 조명강건) +
+#           크기(물리 long/short mm — 상자 종류의 최강 단서). 고정 스케일 정규화 후 블록 가중 →
+#           유클리드 거리 < CLUSTER_TAU 면 연결(union-find). **크기 우선** 기본값.
+CLUSTER_L_WEIGHT = float(os.environ.get("DEPAL_CLUSTER_L_WEIGHT", "0.35"))     # 밝기(L) 다운웨이트 → 조명차 완화
+CLUSTER_W_COLOR = float(os.environ.get("DEPAL_CLUSTER_W_COLOR", "0.8"))        # 색 가중
+CLUSTER_W_TEX = float(os.environ.get("DEPAL_CLUSTER_W_TEX", "0.5"))            # 질감(글씨/인쇄) 가중
+CLUSTER_W_SIZE = float(os.environ.get("DEPAL_CLUSTER_W_SIZE", "1.5"))          # 크기 가중(우선 — 실물치수)
+CLUSTER_TAU = float(os.environ.get("DEPAL_CLUSTER_TAU", "1.3"))                # 연결 거리 임계
+CLUSTER_SIZE_SCALE_MM = float(os.environ.get("DEPAL_CLUSTER_SIZE_SCALE_MM", "50"))  # 크기 구분 문턱(mm)
+CLUSTER_MIN_PX = int(os.environ.get("DEPAL_CLUSTER_MIN_PX", "60"))             # 이보다 작은 마스크는 그룹 제외
 
 # ---------------------------------------------------------------------------
 # SAM active-learning labeler (press 't' in the live app)

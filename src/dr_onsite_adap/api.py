@@ -261,7 +261,8 @@ class OnsiteDetector:
         if cluster and scene.pick_targets:
             gids, labels = cluster_by_appearance(
                 [p.mask for p in scene.pick_targets],
-                [p.class_id for p in scene.pick_targets], color_bgr)
+                [p.class_id for p in scene.pick_targets], color_bgr,
+                sizes_mm=[(p.long_side_mm, p.short_side_mm) for p in scene.pick_targets])
             for p, g, l in zip(scene.pick_targets, gids, labels):
                 p.group_id, p.group_label = g, l
         return scene
