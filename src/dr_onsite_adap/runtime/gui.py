@@ -130,17 +130,19 @@ class _DetectThread(QThread):
     done = Signal(object, object)   # (state, intr)
     failed = Signal(str)
 
-    def __init__(self, model, color, depth, intr, up, with_pointcloud=True):
+    def __init__(self, model, color, depth, intr, up, with_pointcloud=True,
+                 cluster=False):
         super().__init__()
         self._args = (model, color, depth, intr, up)
         self._wp = with_pointcloud
+        self._cluster = cluster
 
     def run(self):
         model, color, depth, intr, up = self._args
         try:
             h, w = color.shape[:2]
             state = run_detection(model, color, depth, intr, up, h, w,
-                                  with_pointcloud=self._wp)
+                                  with_pointcloud=self._wp, cluster=self._cluster)
             self.done.emit(state, intr)
         except Exception as e:  # noqa: BLE001
             self.failed.emit(f"검출 실패: {e}")
@@ -239,6 +241,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._last_t = time.time()
         self._busy = False
         self.live_mode = False               # 실시간 연속 검출 토글
+        self.group_mode = False              # 클래스별 외형 그룹화 토글
         self.smoother = DetectionSmoother()   # 실시간 깜빡임 방지(시간축 안정화)
 
         self._build_ui()
@@ -270,6 +273,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_live.setShortcut("l")
         self.btn_live.setToolTip("매 프레임 연속 검출(깜빡임 방지 적용). 다시 누르면 끔.")
         self.btn_live.toggled.connect(self._toggle_live)
+        self.btn_group = QtWidgets.QPushButton("🎨  클래스별 그룹화")
+        self.btn_group.setCheckable(True)
+        self.btn_group.setToolTip("검출(분류) 후 같은 클래스 안에서 색·질감·크기가 비슷한 것끼리 "
+                                  "그룹색으로 묶어 표시(예: Carton#0, Carton#1). 다시 누르면 끔.")
+        self.btn_group.toggled.connect(self._toggle_group)
         self.btn_3d = QtWidgets.QPushButton("🧊  3D 보기")
         self.btn_3d.clicked.connect(self.do_3d)
         self.btn_roi = QtWidgets.QPushButton("▭  ROI 지정")
@@ -287,7 +295,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_reload = QtWidgets.QPushButton("♻  새 가중치 로드")
         self.btn_reload.setToolTip("학습·병합으로 만든 새 가중치(DEPAL_FINAL)를 재시작 없이 적용 — 학습 전/후 비교용")
         self.btn_reload.clicked.connect(self.do_reload)
-        for b in (self.btn_detect, self.btn_live, self.btn_3d, self.btn_roi,
+        for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_3d, self.btn_roi,
                   self.btn_roi_clear, self.btn_label, self.btn_up, self.btn_reload,
                   self.btn_clear):
             b.setMinimumHeight(40)
@@ -332,7 +340,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_model_ready(self, model, labeler):
         self.model = model
         self.labeler = labeler
-        for b in (self.btn_detect, self.btn_live, self.btn_3d, self.btn_roi,
+        for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_3d, self.btn_roi,
                   self.btn_roi_clear, self.btn_up, self.btn_reload, self.btn_clear):
             b.setEnabled(True)
         self.btn_label.setEnabled(labeler is not None)
@@ -415,7 +423,8 @@ class MainWindow(QtWidgets.QMainWindow):
         color, depth, intr, up = self.last_pack
         # 라이브(연속)에선 3D 점구름 생략해 가속, 단발 검출에선 계산('v' 3D 보기용).
         self.detect_thread = _DetectThread(self.model, color.copy(), depth.copy(),
-                                           intr, up, with_pointcloud=not self.live_mode)
+                                           intr, up, with_pointcloud=not self.live_mode,
+                                           cluster=self.group_mode)
         self.detect_thread.done.connect(self._on_detect_done)
         self.detect_thread.failed.connect(self._on_detect_fail)
         self.detect_thread.start()
@@ -436,6 +445,16 @@ class MainWindow(QtWidgets.QMainWindow):
             self._kick_detect()          # 즉시 시작(이후 프레임마다 자동 연속)
         else:
             self._set_status("실시간 검출 OFF")
+
+    def _toggle_group(self, checked):
+        """클래스별 외형 그룹화 토글. 켜면 다음 검출부터 그룹색/라벨로 표시."""
+        self.group_mode = checked
+        self.smoother.reset()            # 색/라벨이 바뀌므로 트랙 초기화
+        self.btn_group.setText("🎨  그룹화 끄기" if checked else "🎨  클래스별 그룹화")
+        self._set_status("● 클래스별 그룹화 ON" if checked else "클래스별 그룹화 OFF")
+        # 정지 상태에 직전 검출이 있으면 즉시 재검출해 반영(라이브면 다음 프레임에 자동 적용).
+        if not self.live_mode and self.model is not None and self.last_pack is not None:
+            self._kick_detect()
 
     def _on_detect_done(self, state, intr):
         # 실시간 모드면 시간축 안정화(깜빡임 방지) 적용.

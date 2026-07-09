@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 
 from .. import config
+from .clustering import cluster_by_appearance, group_color
 from .geometry import estimate_top_face, estimate_top_face_v2
 from .occlusion import compute_occlusion_by_mask
 from .viz import (
@@ -26,7 +27,7 @@ from .viz import (
 
 
 def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
-                  with_pointcloud=True, conf_threshold=None):
+                  with_pointcloud=True, conf_threshold=None, cluster=False):
     """Run the model + top-face estimation + mask-based occlusion once.
 
     Returns a state dict that the main loop overlays onto every frame
@@ -34,6 +35,9 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
 
     with_pointcloud: 3D 스냅샷용 점구름까지 계산할지. 라이브(매 프레임)에선 False 로
     꺼서 비용을 줄인다(픽 자세에는 영향 없음). 단발 'd' / 3D 보기 흐름에선 True.
+
+    cluster: True 면 픽 대상(active)을 **같은 클래스 안에서** 외형(색·질감·크기)으로
+    서브그룹핑해 각 det 에 group_id/group_label 을 달고 마스크/뱃지를 그룹색으로 칠한다.
     """
     # 윗면 추정 알고리즘 선택(config.GEOM_ALGO): "v2"=평면 fit 방식, 그 외=기존 v1.
     estimate = (estimate_top_face_v2 if config.GEOM_ALGO == "v2"
@@ -116,6 +120,22 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
         fail_markers.append(((u_oc, v_oc), "occluded"))
     active = [c for k, c in enumerate(collected) if k not in occluded_idx]
 
+    # 외형 클러스터링(옵트인): 같은 클래스 안에서 색·질감·크기로 서브그룹 → 그룹색/라벨.
+    if cluster and active:
+        gids, glabels = cluster_by_appearance(
+            [d["mask"] for d in active], [d["cid"] for d in active], color)
+        active_mask_ids = set()
+        for d, g, l in zip(active, gids, glabels):
+            d["group_id"] = g
+            d["group_label"] = l
+            gc = group_color(g)
+            if gc is not None:
+                d["color_bgr"] = gc          # 뱃지/패널/마스크 색을 그룹색으로
+            active_mask_ids.add(id(d["mask"]))
+        # 마스크 오버레이 재구성: active 는 그룹색, 그 외(가림/실패)는 원 클래스색 유지.
+        kept = [(m, c) for (m, c) in masks_with_color if id(m) not in active_mask_ids]
+        masks_with_color = kept + [(d["mask"], d["color_bgr"]) for d in active]
+
     # 빈 팔레트 = 완료 신호: 팔레트는 보이는데 픽 대상이 하나도 없음.
     done = bool(pallets) and item_count == 0
 
@@ -163,8 +183,10 @@ def draw_state(img, state, intr, show_panel=True):
                      max(15, min(badge_pos[1], h_img - 15)))
         draw_numbered_badge(img, badge_pos, badge_n, det["color_bgr"])
 
+        gl = det.get("group_label")
+        gtag = f" [{gl}]" if gl else ""
         label = (
-            f"[{badge_n}] {det['name']} "
+            f"[{badge_n}] {det['name']}{gtag} "
             f"({x3*100:+5.1f},{y3*100:+5.1f},{z3*100:+5.1f})cm "
             f"{res['long_side_mm']:.0f}x{res['short_side_mm']:.0f}mm"
         )

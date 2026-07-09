@@ -20,6 +20,18 @@ from .. import config
 # lap_var, entropy, aspect, log_area]
 _SCALE = np.array([18.206, 13.741, 16.841, 12.042, 24.471, 1460.753, 0.449, 1.349, 1.232])
 
+# 그룹 시각화 색 팔레트(BGR) — group_id 로 인덱싱. 클래스 색과 별개(외형 서브그룹 구분용).
+GROUP_PALETTE = [(0, 255, 0), (0, 140, 255), (255, 80, 80), (255, 0, 255),
+                 (0, 255, 255), (180, 180, 0), (203, 192, 255), (128, 0, 255),
+                 (0, 215, 255), (128, 128, 0), (80, 127, 255), (255, 191, 0)]
+
+
+def group_color(group_id):
+    """group_id → BGR 그룹 색(-1/None 이면 None)."""
+    if group_id is None or group_id < 0:
+        return None
+    return GROUP_PALETTE[group_id % len(GROUP_PALETTE)]
+
 
 def _uf_find(par, a):
     while par[a] != a:
