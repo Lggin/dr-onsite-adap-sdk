@@ -313,8 +313,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video = VideoLabel()
         self.video.roi_selected.connect(self._on_roi_selected)
         lv.addWidget(self.video, 1)
-        self.table = QtWidgets.QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["#", "클래스", "크기(mm)", "중심(cm)"])
+        self.table = QtWidgets.QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["#", "클래스", "그룹", "크기(mm)", "중심(cm)"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setMaximumHeight(160)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -478,7 +478,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for i, det in enumerate(rows):
             res = det["res"]
             x, y, z = res["center_3d"]
-            vals = [str(i + 1), det["name"],
+            vals = [str(i + 1), det["name"], det.get("group_label", "") or "-",
                     f"{res['long_side_mm']:.0f} x {res['short_side_mm']:.0f}",
                     f"({x*100:+.1f}, {y*100:+.1f}, {z*100:+.1f})"]
             for c, v in enumerate(vals):

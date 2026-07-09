@@ -36,7 +36,7 @@ import cv2
 import numpy as np
 
 from . import config
-from .runtime.clustering import cluster_by_appearance
+from .runtime.clustering import GROUP_PALETTE as _GROUP_PALETTE, cluster_by_appearance
 from .runtime.detect import run_detection
 from .runtime.inference import SegModel
 from .runtime.viz import (
@@ -126,12 +126,6 @@ def _scene_from_state(state, intrinsics) -> "SceneResult":
     return SceneResult(pick_targets=picks, pallets=pallets, item_count=state["item_count"],
                        done=state["done"], counts=state["counts"],
                        inference_time=state["inference_time"], intrinsics=tuple(intrinsics))
-
-
-# 그룹 색 팔레트(외형 클러스터 시각화 — group_id 로 인덱싱). 클래스 색과 별개.
-_GROUP_PALETTE = [(0, 255, 0), (0, 140, 255), (255, 80, 80), (255, 0, 255),
-                  (0, 255, 255), (180, 180, 0), (203, 192, 255), (128, 0, 255),
-                  (0, 215, 255), (128, 128, 0)]
 
 
 def draw_scene(color_bgr, result):
