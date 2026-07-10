@@ -89,11 +89,18 @@ def draw_fail_marker(img, pos, reason, color=(0, 165, 255)):
 
 
 def draw_numbered_badge(img, pos, n, fill_color,
-                         text_color=(255, 255, 255), radius=11):
-    """Small filled circle in class color with the detection's index inside.
+                         text_color=None, radius=11):
+    """Small filled circle in class/group color with the detection's index inside.
     Use this to label each kept detection so the right-hand info panel can
-    cross-reference. Halo + outline make it readable on any background."""
+    cross-reference. Halo + outline make it readable on any background.
+
+    text_color=None 이면 채움색 밝기로 자동 결정(밝으면 검정, 어두우면 흰색) → 노랑/시안 등
+    밝은 그룹색 위에서도 숫자가 잘 보인다."""
     x, y = int(pos[0]), int(pos[1])
+    if text_color is None:
+        b, g, r = fill_color[:3]
+        lum = 0.114 * b + 0.587 * g + 0.299 * r      # 채움색 밝기(BGR)
+        text_color = (0, 0, 0) if lum > 140 else (255, 255, 255)
     cv2.circle(img, (x, y), radius + 2, (0, 0, 0), -1)
     cv2.circle(img, (x, y), radius, fill_color, -1)
     cv2.circle(img, (x, y), radius, (255, 255, 255), 1)
