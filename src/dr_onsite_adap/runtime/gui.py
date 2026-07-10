@@ -248,6 +248,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.group_mode = False              # 클래스별 그룹화 토글
         self.prototypes = load_prototypes()  # 정답(프로토타입) 뱅크 — 있으면 최근접 배정
         self._sel_row = -1                   # 검출 표에서 선택된 행(정답 등록 대상)
+        self._group_rows = []                # 그룹목록 표 행 → (cid, proto_idx) 매핑
         self.smoother = DetectionSmoother()   # 실시간 깜빡임 방지(시간축 안정화)
 
         self._build_ui()
@@ -345,6 +346,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self._build_label_tab(), "라벨 데이터")
         # 탭3: 학습 (파이프라인 실행 + 로그)
         self.tabs.addTab(self._build_train_tab(), "학습")
+        # 탭4: 그룹 목록 (클래스별 등록된 정답 + 개별 삭제)
+        self.tabs.addTab(self._build_group_tab(), "그룹 목록")
+        self._refresh_group_table()
 
         self.status = self.statusBar()
         self._set_status("모델 로딩 중… 잠시만요")
@@ -509,6 +513,7 @@ class MainWindow(QtWidgets.QMainWindow):
         save_prototypes(self.prototypes)
         self._set_status(f"✅ 정답 등록: {name.strip()} ({long_mm:.0f}x{short_mm:.0f}mm) "
                          f"· 총 {bank_count(self.prototypes)}개")
+        self._refresh_group_table()
         if self.group_mode and not self.live_mode:
             self._kick_detect()
 
@@ -520,8 +525,75 @@ class MainWindow(QtWidgets.QMainWindow):
         self.prototypes = {}
         save_prototypes(self.prototypes)
         self._set_status("정답 전체 삭제 — 비지도 그룹화로 복귀")
+        self._refresh_group_table()
         if self.group_mode and not self.live_mode:
             self._kick_detect()
+
+    # ── 그룹 목록 탭 ──
+    def _build_group_tab(self):
+        w = QtWidgets.QWidget()
+        lay = QtWidgets.QVBoxLayout(w)
+        info = QtWidgets.QLabel(
+            "클래스별로 등록된 '정답(그룹)'. 검출 객체는 자기 클래스의 최근접 정답에 배정됩니다.\n"
+            "정답 등록: [실시간 인식] 탭에서 객체(행) 선택 → '➕ 정답 등록'.")
+        info.setWordWrap(True)
+        lay.addWidget(info)
+        self.group_table = QtWidgets.QTableWidget(0, 4)
+        self.group_table.setHorizontalHeaderLabels(["클래스", "그룹(정답)", "크기(mm)", "현재 검출"])
+        self.group_table.horizontalHeader().setStretchLastSection(True)
+        self.group_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.group_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        lay.addWidget(self.group_table, 1)
+        row = QtWidgets.QHBoxLayout()
+        self.btn_proto_del = QtWidgets.QPushButton("🗑  선택 정답 삭제")
+        self.btn_proto_del.clicked.connect(self.do_delete_prototype)
+        row.addWidget(self.btn_proto_del)
+        row.addStretch(1)
+        lay.addLayout(row)
+        return w
+
+    def _refresh_group_table(self):
+        """정답 뱅크 + (있으면)현재 검출 개수로 그룹 목록 표 갱신."""
+        if not hasattr(self, "group_table"):
+            return
+        counts = {}
+        if self.state:
+            for d in self.state.get("active", []):
+                gl = d.get("group_label")
+                if gl:
+                    counts[gl] = counts.get(gl, 0) + 1
+        self._group_rows = []
+        rows = []
+        for cid_str, protos in sorted(self.prototypes.items(), key=lambda kv: int(kv[0])):
+            cid = int(cid_str)
+            cname = config.CLASSES.get(cid, (cid_str,))[0]
+            for j, p in enumerate(protos):
+                rows.append((cname, p.get("name", f"{cname}#{j}"),
+                             f"{p.get('long_mm', 0):.0f} x {p.get('short_mm', 0):.0f}",
+                             str(counts.get(p.get("name"), 0))))
+                self._group_rows.append((cid, j))
+        self.group_table.setRowCount(len(rows))
+        for i, vals in enumerate(rows):
+            for c, v in enumerate(vals):
+                self.group_table.setItem(i, c, QtWidgets.QTableWidgetItem(v))
+
+    def do_delete_prototype(self):
+        """그룹 목록에서 선택한 정답 하나를 삭제."""
+        r = self.group_table.currentRow()
+        if r < 0 or r >= len(self._group_rows):
+            self._set_status("삭제할 정답을 목록에서 고르세요")
+            return
+        cid, j = self._group_rows[r]
+        lst = self.prototypes.get(str(cid), [])
+        if j < len(lst):
+            removed = lst.pop(j)
+            if not lst:
+                self.prototypes.pop(str(cid), None)
+            save_prototypes(self.prototypes)
+            self._set_status(f"정답 삭제: {removed.get('name')}")
+            self._refresh_group_table()
+            if self.group_mode and not self.live_mode:
+                self._kick_detect()
 
     def _on_detect_done(self, state, intr):
         # 실시간 모드면 시간축 안정화(깜빡임 방지) 적용.
@@ -531,6 +603,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._busy = False
         self.btn_detect.setEnabled(True)
         self._fill_table(self.state)
+        self._refresh_group_table()
         if not self.live_mode:
             self._set_status("검출 완료")
 
