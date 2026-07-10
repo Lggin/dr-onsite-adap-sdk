@@ -230,12 +230,19 @@ def assign_to_prototypes(masks, class_ids, color_bgr, sizes_mm, bank, cfg=config
         protos = bank.get(str(cid), [])
         if protos:
             P = np.array([p["feat"] for p in protos], dtype=float)
+            # 이름별 슬롯: 같은 이름 정답 여러 개 → 한 그룹(색/라벨 공유). 여러 조건에서
+            # 다중 등록해 노이즈에 강건하게(최근접-any). 예: '두산' 3장 등록 → 모두 두산 그룹.
+            pnames = [p.get("name") or f"{name_cls}#{k}" for k, p in enumerate(protos)]
+            uniq = []
+            for nm in pnames:
+                if nm not in uniq:
+                    uniq.append(nm)
             for i in idxs:
                 dd = np.linalg.norm((feat[i] - P) / scale * bw, axis=1)
                 j = int(np.argmin(dd))
                 if dd[j] < cfg.CLUSTER_MATCH_TAU:
-                    group_ids[i] = cid * 16 + j
-                    group_labels[i] = protos[j].get("name") or f"{name_cls}#{j}"
+                    group_ids[i] = cid * 16 + uniq.index(pnames[j])
+                    group_labels[i] = pnames[j]
                 else:
                     group_ids[i] = cid * 16 + 15
                     group_labels[i] = f"{name_cls}#기타"
