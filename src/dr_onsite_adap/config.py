@@ -65,9 +65,11 @@ CLASSES = {
 #           크기(물리 long/short mm — 상자 종류의 최강 단서). 고정 스케일 정규화 후 블록 가중 →
 #           유클리드 거리 < CLUSTER_TAU 면 연결(union-find). **크기 우선** 기본값.
 CLUSTER_L_WEIGHT = float(os.environ.get("DEPAL_CLUSTER_L_WEIGHT", "0.35"))     # 밝기(L) 다운웨이트 → 조명차 완화
-CLUSTER_W_COLOR = float(os.environ.get("DEPAL_CLUSTER_W_COLOR", "0.8"))        # 색 가중
-CLUSTER_W_TEX = float(os.environ.get("DEPAL_CLUSTER_W_TEX", "0.5"))            # 질감(글씨/인쇄) 가중
-CLUSTER_W_SIZE = float(os.environ.get("DEPAL_CLUSTER_W_SIZE", "1.5"))          # 크기 가중(우선 — 실물치수)
+# 동일 가중치 기본(색=질감=크기) — 크기 확 다른 케이스도 유지되면서, 크기 비슷·색 미묘차
+# 케이스가 색/질감으로 갈린다. 특정 축을 더 보려면 해당 env 를 올리면 됨.
+CLUSTER_W_COLOR = float(os.environ.get("DEPAL_CLUSTER_W_COLOR", "1.0"))        # 색 가중
+CLUSTER_W_TEX = float(os.environ.get("DEPAL_CLUSTER_W_TEX", "1.0"))            # 질감(글씨/인쇄) 가중
+CLUSTER_W_SIZE = float(os.environ.get("DEPAL_CLUSTER_W_SIZE", "1.0"))          # 크기 가중
 CLUSTER_TAU = float(os.environ.get("DEPAL_CLUSTER_TAU", "1.3"))                # 연결 거리 임계
 CLUSTER_SIZE_SCALE_MM = float(os.environ.get("DEPAL_CLUSTER_SIZE_SCALE_MM", "50"))  # 크기 구분 문턱(mm)
 CLUSTER_MIN_PX = int(os.environ.get("DEPAL_CLUSTER_MIN_PX", "60"))             # 이보다 작은 마스크는 그룹 제외
