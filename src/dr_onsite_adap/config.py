@@ -73,6 +73,7 @@ CLUSTER_W_SIZE = float(os.environ.get("DEPAL_CLUSTER_W_SIZE", "1.0"))          #
 CLUSTER_TAU = float(os.environ.get("DEPAL_CLUSTER_TAU", "1.3"))                # 연결 거리 임계
 CLUSTER_SIZE_SCALE_MM = float(os.environ.get("DEPAL_CLUSTER_SIZE_SCALE_MM", "50"))  # 크기 구분 문턱(mm)
 CLUSTER_MIN_PX = int(os.environ.get("DEPAL_CLUSTER_MIN_PX", "60"))             # 이보다 작은 마스크는 그룹 제외
+CLUSTER_FEAT_SCALE = float(os.environ.get("DEPAL_CLUSTER_FEAT_SCALE", "0.5"))  # 특징 계산 해상도 배율(속도; 색/질감은 저해상 무해)
 # 프로토타입(정답) 모드: 클래스당 최대 10개 레퍼런스에 최근접 배정. 뱅크는 JSON(유저 편집 가능).
 # 정답 있는 클래스는 최근접 배정(거리>MATCH_TAU 면 '기타'), 정답 없는 클래스는 비지도 폴백.
 PROTOTYPE_PATH = os.environ.get("DEPAL_PROTOTYPE_PATH", "~/cluster_prototypes.json")

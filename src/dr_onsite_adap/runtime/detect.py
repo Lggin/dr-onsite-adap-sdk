@@ -127,10 +127,14 @@ def run_detection(model, color, depth_m, intr, up_dir, h_img, w_img,
         masks_a = [d["mask"] for d in active]
         cids_a = [d["cid"] for d in active]
         sizes = [(d["res"]["long_side_mm"], d["res"]["short_side_mm"]) for d in active]
+        geoms = [(d["res"]["center_3d"], d["res"]["long_axis_3d"], d["res"]["short_axis_3d"],
+                  d["res"]["long_side_mm"], d["res"]["short_side_mm"]) for d in active]
         if prototypes:   # 정답 뱅크 있으면 최근접 배정(클러스터링보다 우선)
-            gids, glabels = assign_to_prototypes(masks_a, cids_a, color, sizes, prototypes)
+            gids, glabels = assign_to_prototypes(masks_a, cids_a, color, sizes, prototypes,
+                                                 geoms=geoms, intrinsics=intr)
         else:
-            gids, glabels = cluster_by_appearance(masks_a, cids_a, color, sizes_mm=sizes)
+            gids, glabels = cluster_by_appearance(masks_a, cids_a, color, sizes_mm=sizes,
+                                                  geoms=geoms, intrinsics=intr)
         active_mask_ids = set()
         for d, g, l in zip(active, gids, glabels):
             d["group_id"] = g

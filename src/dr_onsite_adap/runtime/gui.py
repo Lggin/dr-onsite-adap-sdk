@@ -508,7 +508,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self, "정답 등록", f"'{det['name']}' 정답 이름:", text=default)
         if not ok or not name.strip():
             return
-        feat = prototype_feature(det["mask"].astype(bool), frame, (long_mm, short_mm))
+        geom = (res["center_3d"], res["long_axis_3d"], res["short_axis_3d"],
+                res["long_side_mm"], res["short_side_mm"])
+        feat = prototype_feature(det["mask"].astype(bool), frame, (long_mm, short_mm),
+                                 geom=geom, intrinsics=self.state_intr)
         add_prototype(self.prototypes, det["cid"], name.strip(), feat, long_mm, short_mm)
         save_prototypes(self.prototypes)
         self._set_status(f"✅ 정답 등록: {name.strip()} ({long_mm:.0f}x{short_mm:.0f}mm) "
