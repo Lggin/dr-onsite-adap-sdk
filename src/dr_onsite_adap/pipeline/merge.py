@@ -35,7 +35,26 @@ def main():
     merged_model = lora_model.merge_and_unload()
 
     print(f"4️⃣ save single .pth: {config.FINAL_WEIGHTS}")
-    torch.save({"model": merged_model.state_dict()}, config.FINAL_WEIGHTS)
+    merged_sd = merged_model.state_dict()
+    torch.save({"model": merged_sd}, config.FINAL_WEIGHTS)
+
+    # 병합이 실제로 모델을 바꿨는지 검증(LoRA_B=0 이면 base 와 동일 → 라운드 무의미)
+    try:
+        bck = torch.load(config.BASE_WEIGHTS, map_location="cpu", weights_only=False)
+        base_sd = bck["model"] if isinstance(bck, dict) and "model" in bck else bck
+        diff = maxd = 0
+        for k, v in merged_sd.items():
+            if k in base_sd and base_sd[k].shape == v.shape:
+                d = float((base_sd[k].float() - v.float()).abs().max())
+                if d > 1e-6:
+                    diff += 1; maxd = max(maxd, d)
+        if diff == 0:
+            print("⚠️ 병합 결과가 base 와 동일합니다(LoRA 델타 0) — 이 라운드는 모델을 "
+                  "바꾸지 않았습니다. train 로그의 'LoRA_B 절대합' 을 확인하세요.")
+        else:
+            print(f"🔎 병합 확인: base 대비 {diff}개 텐서 변경, 최대차 {maxd:.5f} (정상)")
+    except Exception as e:
+        print(f"   (병합 검증 생략: {e})")
 
     print(f"✅ done: {config.FINAL_WEIGHTS}")
 

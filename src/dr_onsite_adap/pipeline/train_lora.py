@@ -49,7 +49,15 @@ def _load_best_into_peft(peft_model, best_path):
     raw = getattr(peft_model, "_orig_mod", peft_model)
     if not isinstance(raw, torch.nn.Module):
         raw = peft_model
-    missing, unexpected = raw.load_state_dict(ckpt["model"], strict=False)
+    sd = ckpt["model"]
+    # ⚠️ 버그수정(2026-07-15): best 체크포인트의 LoRA 파라미터는 RF-DETR 저장/EMA
+    # 경로에서 초기값(B=0)으로 저장된다. 그대로 로드하면 방금 학습한 in-memory LoRA
+    # 델타를 0 으로 덮어써(merge 가 base 를 그대로 뱉음 = 온사이트 라운드가 모델을
+    # 전혀 안 바꾸는 버그) LoRA 키는 제외하고 동결 base 만 로드해 학습된 LoRA 를 보존한다.
+    n_before = len(sd)
+    sd = {k: v for k, v in sd.items() if "lora_A" not in k and "lora_B" not in k}
+    print(f"   (best 로드: LoRA 키 {n_before - len(sd)}개 제외 → 학습된 LoRA 보존, base만 로드)")
+    missing, unexpected = raw.load_state_dict(sd, strict=False)
     if missing:
         print(f"   (load_state_dict missing keys: {len(missing)})")
     if unexpected:
@@ -104,6 +112,12 @@ def _make_custom_fit(original_fit):
             print("\n⚠️ no best checkpoint — saving last-epoch state")
 
         print("\n💾 extracting LoRA weights...")
+        # 학습된 LoRA 델타가 실제로 존재하는지 확인(0 이면 merge 가 무효 → 모델 안 바뀜)
+        bsum = sum(float(p.detach().abs().sum())
+                   for n, p in peft_model.named_parameters() if "lora_B" in n)
+        print(f"   LoRA_B 절대합 = {bsum:.6f}  (0 이면 학습이 델타를 안 만든 것)")
+        if bsum == 0.0:
+            print("   ⚠️ LoRA_B 가 0 입니다 — 이 어댑터를 merge 해도 모델이 안 바뀝니다.")
         peft_model.save_pretrained(config.LORA_SAFE_DIR)
         print(f"🎉 LoRA saved: {config.LORA_SAFE_DIR}")
         return result
