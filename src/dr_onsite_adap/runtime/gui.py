@@ -721,35 +721,47 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_status("⚠ " + msg)
 
     def do_promote_weight(self):
-        """현재 로드된 가중치를 운영 기본값(config.OPERATIONAL_WEIGHTS)으로 승격 — 재시작해도 유지."""
+        """현재 로드된 가중치를 버전 이름으로 아카이브하고 운영 기본값으로 승격 — 재시작해도 유지.
+        continual_master_<이름>.pth 로 저장(추적/롤백) + operational.pth 갱신."""
+        import glob
+        import re
         import shutil
         src = self.active_weight_path or config.WEIGHTS_PATH
-        dst = config.OPERATIONAL_WEIGHTS
         if not (src and os.path.isfile(src)):
             self._set_status(f"⚠ 승격할 가중치가 없습니다: {src}")
             return
-        if os.path.abspath(src) == os.path.abspath(dst):
-            self._set_status("현재 가중치가 이미 운영 기본값입니다 (승격 불필요)")
-            return
-        ok = QtWidgets.QMessageBox.question(
+        op = config.OPERATIONAL_WEIGHTS
+        wdir = os.path.dirname(op) or "."
+        # 다음 버전 이름 제안: continual_master_v11_onsite<N> 중 최대 N+1
+        ns = []
+        for f in glob.glob(os.path.join(wdir, "continual_master_v11_onsite*.pth")):
+            m = re.search(r"onsite(\d+)\.pth$", f)
+            if m:
+                ns.append(int(m.group(1)))
+        default = "v11_onsite%d" % ((max(ns) + 1) if ns else 1)
+        name, ok = QtWidgets.QInputDialog.getText(
             self, "운영 가중치 승격",
-            f"현재 가중치를 운영 기본값으로 승격할까요?\n\n"
-            f"원본: {os.path.basename(src)}\n대상: {dst}\n\n"
-            f"→ 재시작 시 이 가중치가 로드됩니다. (기존 운영본은 타임스탬프로 백업)",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
-        if ok != QtWidgets.QMessageBox.Yes:
+            "현재 가중치를 버전으로 저장하고 운영에 반영합니다.\n"
+            "원본: %s\n\n버전 이름 (continual_master_<이름>.pth):" % os.path.basename(src),
+            text=default)
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+        versioned = os.path.join(wdir, "continual_master_%s.pth" % name)
+        if (os.path.isfile(versioned) and os.path.abspath(versioned) != os.path.abspath(src)
+                and QtWidgets.QMessageBox.question(
+                    self, "덮어쓰기", "%s 이(가) 이미 있습니다. 덮어쓸까요?" % os.path.basename(versioned),
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No) != QtWidgets.QMessageBox.Yes):
             return
         try:
-            d = os.path.dirname(dst)
-            if d:
-                os.makedirs(d, exist_ok=True)
-            if os.path.isfile(dst):   # 기존 운영본 롤백용 백업
-                bak = dst.replace(".pth", f".bak_{time.strftime('%Y%m%d_%H%M%S')}.pth")
-                shutil.copy(dst, bak)
-            shutil.copy(src, dst)
-            self._set_status(f"⭐ 운영 승격 완료 → {os.path.basename(dst)} (재시작 시 적용)")
+            os.makedirs(wdir, exist_ok=True)
+            if os.path.abspath(src) != os.path.abspath(versioned):
+                shutil.copy(src, versioned)          # 버전 아카이브
+            shutil.copy(versioned, op)               # 운영 포인터 갱신
+            self._set_status("⭐ 승격 완료 → %s 저장 + 운영 반영 (재시작 시 적용)"
+                             % os.path.basename(versioned))
         except Exception as e:  # noqa: BLE001
-            self._set_status(f"⚠ 승격 실패: {e}")
+            self._set_status("⚠ 승격 실패: %s" % e)
 
     # ── ROI ──
     def _on_roi_button(self, checked):
