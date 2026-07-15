@@ -309,6 +309,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_reload = QtWidgets.QPushButton("♻  새 가중치 로드")
         self.btn_reload.setToolTip("학습·병합으로 만든 새 가중치(DEPAL_FINAL)를 재시작 없이 적용 — 학습 전/후 비교용")
         self.btn_reload.clicked.connect(self.do_reload)
+        self.btn_promote = QtWidgets.QPushButton("⭐  운영 승격")
+        self.btn_promote.setToolTip("현재 로드된 가중치를 '운영 기본값'으로 승격 — 재시작해도 이 가중치가 로드됨. "
+                                    "(기존 운영본은 타임스탬프로 백업)")
+        self.btn_promote.clicked.connect(self.do_promote_weight)
         self.btn_dump = QtWidgets.QPushButton("📸  RGB-D 덤프")
         self.btn_dump.setToolTip("현재 프레임의 RGB+depth+검출마스크를 ~/geom_captures/ 에 저장 "
                                  "(기하/클러스터링 오프라인 튜닝용)")
@@ -316,7 +320,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_proto,
                   self.btn_proto_clear, self.btn_3d, self.btn_roi,
                   self.btn_roi_clear, self.btn_label, self.btn_up, self.btn_reload,
-                  self.btn_dump, self.btn_clear):
+                  self.btn_promote, self.btn_dump, self.btn_clear):
             b.setMinimumHeight(40)
             b.setEnabled(False)
             side.addWidget(b)
@@ -363,10 +367,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_model_ready(self, model, labeler):
         self.model = model
+        self.active_weight_path = config.WEIGHTS_PATH
         self.labeler = labeler
         for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_proto,
                   self.btn_proto_clear, self.btn_3d, self.btn_roi,
-                  self.btn_roi_clear, self.btn_up, self.btn_reload, self.btn_dump, self.btn_clear):
+                  self.btn_roi_clear, self.btn_up, self.btn_reload, self.btn_promote,
+                  self.btn_dump, self.btn_clear):
             b.setEnabled(True)
         self.btn_label.setEnabled(labeler is not None)
         self._set_status("준비 완료 — '검출' 또는 '실시간 검출'을 누르세요")
@@ -693,6 +699,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         # VRAM 스파이크 방지: 옛 모델을 먼저 비우면 실시간 검출은 로딩 동안 잠시 멈춤(자동 재개).
         self.model = None
+        self.active_weight_path = None       # 현재 로드된 가중치 경로(운영 승격 대상)
         self.state = None
         self.smoother.reset()
         self.btn_reload.setEnabled(False)
@@ -704,6 +711,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_reloaded(self, model):
         self.model = model
+        self.active_weight_path = config.FINAL_WEIGHTS
         self.smoother.reset()
         self.btn_reload.setEnabled(True)
         self._set_status(f"✅ 새 가중치 적용됨 — {os.path.basename(config.FINAL_WEIGHTS)}")
@@ -711,6 +719,37 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_reload_fail(self, msg):
         self.btn_reload.setEnabled(True)
         self._set_status("⚠ " + msg)
+
+    def do_promote_weight(self):
+        """현재 로드된 가중치를 운영 기본값(config.OPERATIONAL_WEIGHTS)으로 승격 — 재시작해도 유지."""
+        import shutil
+        src = self.active_weight_path or config.WEIGHTS_PATH
+        dst = config.OPERATIONAL_WEIGHTS
+        if not (src and os.path.isfile(src)):
+            self._set_status(f"⚠ 승격할 가중치가 없습니다: {src}")
+            return
+        if os.path.abspath(src) == os.path.abspath(dst):
+            self._set_status("현재 가중치가 이미 운영 기본값입니다 (승격 불필요)")
+            return
+        ok = QtWidgets.QMessageBox.question(
+            self, "운영 가중치 승격",
+            f"현재 가중치를 운영 기본값으로 승격할까요?\n\n"
+            f"원본: {os.path.basename(src)}\n대상: {dst}\n\n"
+            f"→ 재시작 시 이 가중치가 로드됩니다. (기존 운영본은 타임스탬프로 백업)",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if ok != QtWidgets.QMessageBox.Yes:
+            return
+        try:
+            d = os.path.dirname(dst)
+            if d:
+                os.makedirs(d, exist_ok=True)
+            if os.path.isfile(dst):   # 기존 운영본 롤백용 백업
+                bak = dst.replace(".pth", f".bak_{time.strftime('%Y%m%d_%H%M%S')}.pth")
+                shutil.copy(dst, bak)
+            shutil.copy(src, dst)
+            self._set_status(f"⭐ 운영 승격 완료 → {os.path.basename(dst)} (재시작 시 적용)")
+        except Exception as e:  # noqa: BLE001
+            self._set_status(f"⚠ 승격 실패: {e}")
 
     # ── ROI ──
     def _on_roi_button(self, checked):

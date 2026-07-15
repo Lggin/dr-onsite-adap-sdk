@@ -178,6 +178,9 @@ LORA_SAFE_DIR = str(_env_path("DEPAL_LORA_SAFE", DEPAL_HOME / "runs" / "lora_saf
 LORA_RUN_DIR = str(_env_path("DEPAL_LORA_RUN", DEPAL_HOME / "runs" / "lora_run"))
 # Merged single-file output of a round.
 FINAL_WEIGHTS = str(_env_path("DEPAL_FINAL", WEIGHTS_DIR / "merged.pth"))
+# 운영 가중치 경로(재시작해도 로드되는 기본값이 가리키는 곳). GUI '운영 승격'이 현재 가중치를
+# 여기로 복사 → 다음 실행부터 적용. demo 스크립트의 DEPAL_WEIGHTS/BASE 가 이 경로를 가리키면 됨.
+OPERATIONAL_WEIGHTS = str(_env_path("DEPAL_OPERATIONAL_WEIGHTS", WEIGHTS_DIR / "operational.pth"))
 
 # Synthetic dataset (with pallet labels) used as replay source + eval held-out.
 PALLET_DATA_DIR = os.environ.get("DEPAL_PALLET_DATA", str(DEPAL_HOME / "data" / "pallet_synth"))
