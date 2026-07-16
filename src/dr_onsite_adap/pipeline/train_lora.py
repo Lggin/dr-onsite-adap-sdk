@@ -112,12 +112,21 @@ def _make_custom_fit(original_fit):
             print("\n⚠️ no best checkpoint — saving last-epoch state")
 
         print("\n💾 extracting LoRA weights...")
-        # 학습된 LoRA 델타가 실제로 존재하는지 확인(0 이면 merge 가 무효 → 모델 안 바뀜)
+        # 학습된 LoRA 델타가 실제로 존재하는지 확인(0 이면 merge 가 무효 → 모델 안 바뀜).
+        # 무효 어댑터를 저장하면 다음 merge 가 배포 가중치를 무변화로 덮어써 라운드가
+        # 조용히 실패하므로, 여기서 저장 전에 막는다(무결성 게이트).
         bsum = sum(float(p.detach().abs().sum())
                    for n, p in peft_model.named_parameters() if "lora_B" in n)
         print(f"   LoRA_B 절대합 = {bsum:.6f}  (0 이면 학습이 델타를 안 만든 것)")
         if bsum == 0.0:
-            print("   ⚠️ LoRA_B 가 0 입니다 — 이 어댑터를 merge 해도 모델이 안 바뀝니다.")
+            msg = ("LoRA_B 가 0 입니다 — 학습이 델타를 만들지 못했습니다. "
+                   "이 어댑터를 merge 해도 모델이 안 바뀝니다(무효 라운드).")
+            if os.environ.get("DEPAL_ALLOW_EMPTY_LORA") == "1":
+                print(f"   ⚠️ {msg}\n   (DEPAL_ALLOW_EMPTY_LORA=1 → 무시하고 저장)")
+            else:
+                raise SystemExit(
+                    f"❌ {msg}\n   무효 어댑터 저장을 막습니다. "
+                    "우회: DEPAL_ALLOW_EMPTY_LORA=1")
         peft_model.save_pretrained(config.LORA_SAFE_DIR)
         print(f"🎉 LoRA saved: {config.LORA_SAFE_DIR}")
         return result

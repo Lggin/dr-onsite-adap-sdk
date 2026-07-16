@@ -11,6 +11,8 @@ feature 분포에서만 유효).
 
 사용법:  dr-onsite-merge   (보통은 dr-onsite-round 가 알아서 부릅니다)
 """
+import os
+
 import torch
 from rfdetr import RFDETRSegMedium
 from peft import PeftModel
@@ -33,12 +35,11 @@ def main():
 
     print("3️⃣ merge LoRA into base...")
     merged_model = lora_model.merge_and_unload()
-
-    print(f"4️⃣ save single .pth: {config.FINAL_WEIGHTS}")
     merged_sd = merged_model.state_dict()
-    torch.save({"model": merged_sd}, config.FINAL_WEIGHTS)
 
-    # 병합이 실제로 모델을 바꿨는지 검증(LoRA_B=0 이면 base 와 동일 → 라운드 무의미)
+    # 4️⃣ 저장 전에 병합이 실제로 모델을 바꿨는지 검증 → 델타 0(무효 라운드)이면
+    #    배포 가중치(FINAL_WEIGHTS)를 덮어쓰지 않고 중단(무결성 게이트).
+    print("4️⃣ 병합 검증 (base 대비 실제 변화 확인)...")
     try:
         bck = torch.load(config.BASE_WEIGHTS, map_location="cpu", weights_only=False)
         base_sd = bck["model"] if isinstance(bck, dict) and "model" in bck else bck
@@ -48,14 +49,25 @@ def main():
                 d = float((base_sd[k].float() - v.float()).abs().max())
                 if d > 1e-6:
                     diff += 1; maxd = max(maxd, d)
-        if diff == 0:
-            print("⚠️ 병합 결과가 base 와 동일합니다(LoRA 델타 0) — 이 라운드는 모델을 "
-                  "바꾸지 않았습니다. train 로그의 'LoRA_B 절대합' 을 확인하세요.")
-        else:
-            print(f"🔎 병합 확인: base 대비 {diff}개 텐서 변경, 최대차 {maxd:.5f} (정상)")
     except Exception as e:
-        print(f"   (병합 검증 생략: {e})")
+        # 검증 자체가 불가능(base 로드 실패 등)하면 게이트를 우회하되 명확히 알림.
+        print(f"   ⚠️ 병합 검증 생략(base 비교 불가: {e}) — 검증 없이 저장합니다.")
+        diff = None
 
+    if diff == 0:
+        msg = ("병합 결과가 base 와 동일합니다(LoRA 델타 0) — 이 라운드는 모델을 "
+               "바꾸지 않았습니다. train 로그의 'LoRA_B 절대합' 을 확인하세요.")
+        if os.environ.get("DEPAL_ALLOW_EMPTY_MERGE") == "1":
+            print(f"   ⚠️ {msg}\n   (DEPAL_ALLOW_EMPTY_MERGE=1 → 강제 저장)")
+        else:
+            raise SystemExit(
+                f"❌ {msg}\n   배포 가중치를 덮어쓰지 않고 중단합니다. "
+                "우회: DEPAL_ALLOW_EMPTY_MERGE=1")
+    elif diff:
+        print(f"   🔎 병합 확인: base 대비 {diff}개 텐서 변경, 최대차 {maxd:.5f} (정상)")
+
+    print(f"5️⃣ save single .pth: {config.FINAL_WEIGHTS}")
+    torch.save({"model": merged_sd}, config.FINAL_WEIGHTS)
     print(f"✅ done: {config.FINAL_WEIGHTS}")
 
 
