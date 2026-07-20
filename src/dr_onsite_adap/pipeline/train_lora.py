@@ -16,6 +16,7 @@ PyTorch-Lightning 의 fit() 을 가로채 (a) 내부 모델을 PEFT LoRA 로 감
 """
 import json
 import os
+import time
 import types
 from pathlib import Path
 
@@ -26,6 +27,82 @@ from peft import LoraConfig, get_peft_model
 
 from .. import config
 from ..exceptions import PipelineError
+
+
+class RoundProgressCallback(pl.Callback):
+    """라운드 학습의 전체 진행 상황을 매 검증 에폭마다 한 줄로 요약한다.
+
+    클래스별 지표 테이블(AP/AR/F1/…)은 rfdetr 의 COCOEvalCallback 이 이미
+    출력하므로 여기선 재발명하지 않는다. 대신 그 지표가 callback_metrics 에
+    채워진 뒤(=이 콜백을 COCOEvalCallback 뒤에 append) 발화해:
+      - 진행률 %, 남은 에폭 수, 경과/ETA(에폭당 평균 시간 기반)
+      - mAP50 / mAP50:95 / F1 추세 + best 에폭
+    을 한 줄로 콘솔·파일에 남긴다(rich 테이블은 스크롤로 사라지므로 사후 검토용).
+    """
+
+    def __init__(self, fallback_epochs, log_path=None):
+        self.total = int(fallback_epochs)
+        self.log_path = log_path
+        self.t0 = None
+        self.best_map = None
+        self.best_epoch = None
+
+    def on_fit_start(self, trainer, pl_module):
+        self.t0 = time.time()
+        # 실제 최대 에폭(early stopping 과 무관한 상한)을 우선 사용.
+        me = getattr(trainer, "max_epochs", None)
+        if me and me > 0:
+            self.total = int(me)
+        if self.log_path:
+            try:
+                os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+            except OSError:
+                self.log_path = None
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        if getattr(trainer, "sanity_checking", False):
+            return   # fit 시작 전 예열 검증은 건너뜀
+        m = trainer.callback_metrics
+
+        def g(*keys):
+            for k in keys:
+                v = m.get(k)
+                if v is not None:
+                    return float(v)
+            return None
+
+        ep = int(trainer.current_epoch) + 1
+        pct = 100.0 * ep / max(self.total, 1)
+        elapsed = (time.time() - self.t0) if self.t0 else 0.0
+        remaining = max(self.total - ep, 0)
+        eta = (elapsed / max(ep, 1)) * remaining   # 에폭당 평균 × 남은 에폭
+
+        map50 = g("val/mAP_50", "val/ema_mAP_50")
+        map5095 = g("val/mAP_50_95", "val/ema_mAP_50_95")
+        f1 = g("val/F1")
+
+        cur = map50 if map50 is not None else map5095
+        star = ""
+        if cur is not None and (self.best_map is None or cur > self.best_map):
+            self.best_map, self.best_epoch = cur, ep
+            star = " ⭐best"
+
+        def mm(x):
+            return f"{x:.4f}" if x is not None else "—"
+
+        best_s = (f"{mm(self.best_map)}@ep{self.best_epoch}"
+                  if self.best_map is not None else "—")
+        line = (f"[진행] Epoch {ep}/{self.total} ({pct:.1f}%) | 남은 ~{remaining}ep "
+                f"| 경과 {elapsed/60:.1f}m ETA ~{eta/60:.1f}m "
+                f"| mAP50={mm(map50)} mAP50:95={mm(map5095)} F1={mm(f1)} "
+                f"| best {best_s}{star}")
+        print(line, flush=True)
+        if self.log_path:
+            try:
+                with open(self.log_path, "a") as f:
+                    f.write(line + "\n")
+            except OSError:
+                pass
 
 AUG_CONFIG = {
     "HorizontalFlip": {"p": 0.5},
@@ -101,6 +178,20 @@ def _make_custom_fit(original_fit):
         )
         peft_model.print_trainable_parameters()
         print("=" * 50 + "\n")
+
+        # 진행률/ETA/지표추세 요약 콜백을 rfdetr 콜백들 뒤에 붙인다(지표가
+        # callback_metrics 에 채워진 뒤 발화하도록 순서상 마지막에 append).
+        try:
+            prog = RoundProgressCallback(
+                config.EPOCHS,
+                log_path=os.path.join(config.LORA_RUN_DIR, "progress.log"),
+            )
+            if isinstance(getattr(trainer, "callbacks", None), list):
+                trainer.callbacks.append(prog)
+            else:
+                trainer.callbacks = [prog]
+        except Exception as e:   # 진행 로그는 부가기능 — 실패해도 학습은 계속
+            print(f"⚠️ 진행 콜백 등록 실패(학습은 계속): {e}")
 
         result = original_fit(trainer, lightning_module, datamodule, **kwargs)
 
