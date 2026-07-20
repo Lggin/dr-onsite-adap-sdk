@@ -605,6 +605,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._kick_detect()
 
     def _on_detect_done(self, state, intr):
+        # 진단(DEPAL_DIAG_DROPOUT=1): smoother 적용 전 raw state 숫자.
+        # 실시간 24→1-2 드롭아웃 원인 확정용 — 2D검출/기하성공/실패이유 분포.
+        if os.environ.get("DEPAL_DIAG_DROPOUT"):
+            from collections import Counter
+            reasons = Counter(r for _, r in state.get("fail_markers", []))
+            print(f"[DIAG] live={self.live_mode} item_count(2D)={state.get('item_count')} "
+                  f"active(geom_ok)={len(state.get('active', []))} "
+                  f"fails={dict(reasons)}", flush=True)
         # 실시간 모드면 시간축 안정화(깜빡임 방지) 적용.
         self.state = self.smoother.update(state) if self.live_mode else state
         self.state_intr = intr
