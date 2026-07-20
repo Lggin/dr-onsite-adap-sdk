@@ -184,6 +184,12 @@ OPERATIONAL_WEIGHTS = str(_env_path("DEPAL_OPERATIONAL_WEIGHTS", WEIGHTS_DIR / "
 
 # Synthetic dataset (with pallet labels) used as replay source + eval held-out.
 PALLET_DATA_DIR = os.environ.get("DEPAL_PALLET_DATA", str(DEPAL_HOME / "data" / "pallet_synth"))
+# 리플레이 소스 데이터셋(층화추출로 전 클래스 보존). 기본은 PALLET_DATA_DIR(하위호환);
+# 전체 클래스 보존을 원하면 DEPAL_REPLAY_SRC 를 final_dataset(5클래스) 로 지정.
+REPLAY_SRC_DIR = os.environ.get("DEPAL_REPLAY_SRC", PALLET_DATA_DIR)
+# 리플레이에서 각 클래스별로 최소 보장할 이미지 수(가용 범위 내). 희귀 클래스
+# (슬립시트 등)가 무작위 추출에서 누락되는 것을 막는다. K 를 초과하면 희귀 우선.
+REPLAY_PER_CLASS_MIN = int(os.environ.get("DEPAL_REPLAY_PER_CLASS_MIN", "40"))
 # Output dir for the replay-mixed training set builder.
 REPLAY_OUT_DIR = os.environ.get("DEPAL_REPLAY_OUT", str(DEPAL_HOME / "data" / "replay_round"))
 
