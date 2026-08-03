@@ -197,6 +197,16 @@ REPLAY_OUT_DIR = os.environ.get("DEPAL_REPLAY_OUT", str(DEPAL_HOME / "data" / "r
 LORA_R = int(os.environ.get("DEPAL_LORA_R", "32"))
 LORA_ALPHA = int(os.environ.get("DEPAL_LORA_ALPHA", "64"))
 LORA_DROPOUT = float(os.environ.get("DEPAL_LORA_DROPOUT", "0.052412"))
+# 어댑터를 붙일 범위. 모델의 Linear 186개 중 **backbone(DINOv2)이 72개·21.2M 파라미터로
+# 전체 선형 파라미터의 66%** 를 차지한다(실측). 라운드는 현장 신규 라벨 수십 장 규모라
+# 백본까지 흔들면 과적합·저효율이다.
+#   "all-linear"  : 전부(기존 동작). r=32 기준 학습 파라미터 4,861,312 = 베이스의 13.74%
+#   "no-backbone" : backbone 제외 = transformer+heads 114개(10.2M) — 일반 시각특징 보존
+LORA_TARGETS = os.environ.get("DEPAL_LORA_TARGETS", "all-linear")
+# ⚠️ 이전에는 wrapper.train() 에 weight_decay 를 **전달조차 하지 않아** rfdetr 기본값
+# (TrainConfig.weight_decay=1e-4)이 그대로 쓰였다. 2026-05 W&B 스윕에도 WD 는 없었다.
+# 기본값을 1e-4 로 둬 기존 동작을 유지하면서 탐색 가능하게만 만든다.
+WEIGHT_DECAY = float(os.environ.get("DEPAL_WEIGHT_DECAY", "1e-4"))
 LR = float(os.environ.get("DEPAL_LR", "0.00018334"))
 EPOCHS = int(os.environ.get("DEPAL_EPOCHS", "60"))
 BATCH_SIZE = int(os.environ.get("DEPAL_BATCH_SIZE", "4"))
