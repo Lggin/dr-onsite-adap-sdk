@@ -46,7 +46,15 @@ def main():
         diff = maxd = 0
         for k, v in merged_sd.items():
             if k in base_sd and base_sd[k].shape == v.shape:
-                d = float((base_sd[k].float() - v.float()).abs().max())
+                # ⚠️ base 는 map_location="cpu" 로 읽지만 merged_sd 는 **GPU 텐서**다.
+                # 그냥 빼면 "Expected all tensors to be on the same device" 예외가 나고,
+                # 아래 except 가 이를 삼켜 **무결성 게이트가 통째로 생략**된다
+                # (2026-08-03 실측: "병합 검증 생략 … 검증 없이 저장합니다").
+                # LoRA 병합 무효화를 잡으려고 만든 게이트가 정작 안 걸리던 원인이라
+                # 비교 전에 CPU 로 내린다.
+                bt = base_sd[k].detach().to("cpu").float()
+                vt = v.detach().to("cpu").float()
+                d = float((bt - vt).abs().max())
                 if d > 1e-6:
                     diff += 1; maxd = max(maxd, d)
     except Exception as e:
