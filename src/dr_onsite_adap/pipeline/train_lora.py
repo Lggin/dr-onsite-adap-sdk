@@ -427,6 +427,15 @@ def main():
         early_stopping_patience=config.EARLY_STOP_PATIENCE,
         early_stopping_min_delta=0.001,
         wandb=False,
+        # ⚠️ 반드시 False. rfdetr 기본값 True 면 TensorBoard writer 가 TensorFlow(2.18)
+        #    1600여 모듈을 끌어오고, TF 가 torch 위에 cuFFT/cuDNN/cuBLAS 팩토리를 이중
+        #    등록한다("Unable to register ... already been registered"). 그 결과 프로세스
+        #    종료 시점에 glibc 힙이 깨져 SIGABRT(rc=-6)로 죽는다
+        #    (`double free or corruption (out)` / `corrupted size vs. prev_size`).
+        #    2026-08-03 스윕에서 학습 5건 전부 이렇게 아보트했고, 비정상 종료라 CUDA
+        #    정리 경로가 커널에서 폭주해 PC 가 18시간 프리즈했다. 지표/진행률은
+        #    PTL CSVLogger + RoundProgressCallback 로 충분하다.
+        tensorboard=False,
         project="Depal_Active_Learning",
         run="lora_round",
     )
