@@ -11,10 +11,13 @@
 ⚠️ 안전장치: 사람이 검수한 라벨만 사용합니다. 라이브 검출을 자동으로 흡수하지
    마세요(무인·극저에러 운영 원칙에 어긋나며 모델이 오염됩니다). 그래서 갱신은
    의도적인 "라운드" 단위로만 합니다.
-   + 학습셋에 팔레트 라벨이 0개면 라운드를 멈춥니다: 팔레트 없는 배치로 학습하면
-     팔레트 인식 능력이 약해질 수 있습니다(리플레이가 막아주려는 그 망각).
-     팔레트 실측 라벨을 추가하거나, --replay 로 합성 팔레트를 섞거나, --force 로
-     강행하세요.
+   + 학습셋에 라벨이 0개인 클래스가 있으면 라운드를 멈춥니다: 프레임에 그 물체가
+     보이는데 라벨만 없으면 배경(negative)으로 학습돼 그 클래스가 무너집니다.
+     실측(2026-08-04)으로 20프레임에서 팔레트 라벨 20개를 빼자 팔레트 검출이
+     120/120 → 0/120 으로 전멸했고, 같은 프레임을 전 클래스 라벨하면 무손실,
+     리플레이 400장을 섞으면 118/120 로 복구됐다.
+     → 보이는 클래스를 전부 라벨하거나, --replay 로 층화 리플레이를 섞거나,
+     --force 로 강행하세요.
 
 권장 흐름(한 라운드):
   현장 수집(라이브 앱 't') → dr-onsite-ingest → dr-onsite-replay
@@ -23,7 +26,7 @@
 사용법:
   dr-onsite-round            # 학습 + 합치기
   dr-onsite-round --replay   # 리플레이 데이터셋부터 만들고 학습 + 합치기
-  dr-onsite-round --force    # 팔레트 라벨이 0개여도 강행
+  dr-onsite-round --force    # 라벨 0개인 클래스가 있어도 강행
 """
 import argparse
 import json
@@ -37,14 +40,23 @@ from .. import config
 PY = sys.executable
 
 
-def pallet_ann_count(data_dir):
-    n = 0
+def _cls_name(cid):
+    """config.CLASSES 값이 (이름, 색) 튜플이므로 이름만 꺼낸다."""
+    spec = config.CLASSES.get(cid, cid)
+    return spec[0] if isinstance(spec, (tuple, list)) else str(spec)
+
+
+def class_ann_counts(data_dir):
+    """클래스별 라벨 수를 센다({cid: 개수}, 0개인 클래스도 포함)."""
+    counts = {cid: 0 for cid in config.CLASSES}
     for split in ["train", "valid"]:
         p = os.path.join(data_dir, split, "_annotations.coco.json")
         if os.path.exists(p):
             d = json.loads(open(p).read())
-            n += sum(1 for a in d["annotations"] if a["category_id"] == config.PALLET_CID)
-    return n
+            for a in d["annotations"]:
+                cid = a["category_id"]
+                counts[cid] = counts.get(cid, 0) + 1
+    return counts
 
 
 def run(title, module):
@@ -63,19 +75,30 @@ def main():
     ap.add_argument("--replay", action="store_true",
                     help="학습 전에 리플레이 혼합 데이터셋을 먼저 만든다")
     ap.add_argument("--force", action="store_true",
-                    help="팔레트 라벨이 0개여도 진행한다")
+                    help="라벨이 0개인 클래스가 있어도 진행한다")
     args = ap.parse_args()
 
     if args.replay:
         run("0/2 리플레이 데이터셋 생성", "replay")
 
-    npal = pallet_ann_count(config.TRAIN_DATA_DIR)
-    print(f"📊 팔레트(cid={config.PALLET_CID}) 라벨 수 @ {config.TRAIN_DATA_DIR}: {npal}개")
-    if npal == 0 and not args.force:
+    counts = class_ann_counts(config.TRAIN_DATA_DIR)
+    print(f"📊 클래스별 라벨 수 @ {config.TRAIN_DATA_DIR}")
+    for cid, spec in config.CLASSES.items():
+        name = spec[0] if isinstance(spec, (tuple, list)) else str(spec)
+        mark = "  ⛔0개" if counts.get(cid, 0) == 0 else ""
+        print(f"   {cid}:{name:<12s} {counts.get(cid, 0):6d}{mark}")
+    missing = [f"{cid}:{_cls_name(cid)}" for cid in config.CLASSES if counts.get(cid, 0) == 0]
+    if missing and not args.force:
         sys.exit(
-            "⛔ 팔레트 라벨이 0개입니다. 팔레트 없는 배치로 학습하면 팔레트 인식이 "
-            "약해질 수 있습니다.\n   → 팔레트 실측 라벨을 추가하거나, --replay 로 "
-            "팔레트 포함 합성을 섞거나, --force 로 강행하세요."
+            f"⛔ 라벨이 0개인 클래스: {', '.join(missing)}\n"
+            "   이 배치로 학습하면 해당 클래스 인식이 무너집니다. 프레임에 그 물체가 "
+            "보이는데 라벨만 없으면 배경(negative)으로 학습되기 때문입니다.\n"
+            "   실측(2026-08-04, 같은 20프레임·같은 베이스·all-linear r=8):\n"
+            "     · 슬립시트만 라벨(팔레트 20개 라벨 누락) → 팔레트 검출 120/120 → 0/120 (전멸)\n"
+            "     · 같은 프레임 전 클래스 라벨            → 120/120 (무손실)\n"
+            "     · 슬립시트만 라벨 + 리플레이 400장      → 118/120 (리플레이가 상쇄)\n"
+            "   → 그 프레임에 보이는 다른 클래스도 라벨하거나, --replay 로 전 클래스 "
+            "층화 리플레이를 섞거나, --force 로 강행하세요."
         )
 
     run("1/2 LoRA 학습 (검출기)", "train_lora")
