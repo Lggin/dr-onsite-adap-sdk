@@ -110,15 +110,34 @@ def main():
     ap.add_argument("--min-diff", type=float, default=None,
                     help="직전 저장분과의 최소 화면 차이(0=중복 제거 끔)")
     ap.add_argument("--depth", action="store_true", help="depth 도 npz 로 함께 저장")
+    ap.add_argument("--serial", default=None,
+                    help="열 카메라 시리얼(여러 대일 때). --list-cameras 로 확인")
+    ap.add_argument("--list-cameras", action="store_true", help="연결된 카메라 시리얼만 출력")
+    ap.add_argument("--view", action="store_true",
+                    help="창을 띄워 보면서 원할 때만 촬영(스페이스/p=1장, a=자동 토글, q=종료)")
     args = ap.parse_args()
     ensure_utf8_output()
     setup_cli_logging()
 
+    from .cameras import list_orbbec_serials
+
+    if args.list_cameras:
+        serials = list_orbbec_serials()
+        print("연결된 Orbbec 카메라:", ", ".join(serials) if serials else "(없음)")
+        return 0
+
     cap = FieldCapture(args.out, args.min_diff, args.depth or None)
     backend = resolve_backend(config.CAMERA_BACKEND)
-    camera = load_camera_class(backend)()
-    print(f"📷 {backend} 카메라로 {args.interval}초 간격 촬영 시작 → {cap.out_dir}")
-    print("   중단: Ctrl-C")
+    cls = load_camera_class(backend)
+    # 시리얼 지정은 orbbec 만 지원(여러 대 연결 상황이 orbbec 뿐).
+    camera = cls(device_serial=args.serial) if (args.serial and backend == "orbbec") else cls()
+    who = f"[{args.serial}] " if args.serial else ""
+    print(f"📷 {who}{backend} 카메라 → {cap.out_dir}")
+
+    if args.view:
+        return _view_loop(camera, cap, args, who)
+
+    print(f"   {args.interval}초 간격 자동 촬영. 중단: Ctrl-C")
     try:
         while True:
             pack = camera.read()
@@ -130,9 +149,61 @@ def main():
     except KeyboardInterrupt:
         print()
     finally:
-        try:
-            camera.stop()
-        except Exception:  # noqa: BLE001
-            pass
+        _stop(camera)
+    print(cap.summary())
+    return 0
+
+
+def _stop(camera):
+    try:
+        camera.stop()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _view_loop(camera, cap, args, who=""):
+    """창을 띄워 보면서 원할 때만 찍는다 — GUI 가 다른 카메라를 쓰는 동안 두 번째 화면.
+
+    검출은 하지 않는다(모델 미로드). 목적은 "다른 각도를 눈으로 보면서 원하는 순간에
+    고른 카메라로 촬영"이다.
+    """
+    win = f"현장 촬영 {who}(space/p=1장, a=자동, q=종료)"
+    cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+    auto = False
+    next_t = 0.0
+    try:
+        while True:
+            pack = camera.read()
+            if pack is None:
+                continue
+            color, depth, intr, up = (list(pack) + [None] * 4)[:4]
+            now = time.time()
+            if auto and now >= next_t:
+                next_t = now + args.interval
+                cap.save(color, depth, intr, up)
+            view = color.copy()
+            txt = (f"{who}촬영 {cap.n_saved}장  (중복 건너뜀 {cap.n_skipped})"
+                   f"{'  [자동 ON]' if auto else ''}")
+            cv2.rectangle(view, (0, 0), (view.shape[1], 34), (0, 0, 0), -1)
+            cv2.putText(view, txt, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        (0, 255, 0) if auto else (255, 255, 255), 2)
+            cv2.imshow(win, view)
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord(" "), ord("p")):
+                path = cap.save(color, depth, intr, up, force=True)
+                print(f"📷 {cap.n_saved}장 저장 → {path}", flush=True)
+            elif key == ord("a"):
+                auto = not auto
+                next_t = 0.0
+                print(f"📷 자동 촬영 {'ON' if auto else 'OFF'} ({args.interval}초 간격)", flush=True)
+            elif key in (ord("q"), 27):
+                break
+            if args.max and cap.n_saved >= args.max:
+                break
+    except KeyboardInterrupt:
+        pass
+    finally:
+        cv2.destroyWindow(win)
+        _stop(camera)
     print(cap.summary())
     return 0
