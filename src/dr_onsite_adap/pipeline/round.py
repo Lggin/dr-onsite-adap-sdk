@@ -36,6 +36,7 @@ import sys
 import time
 
 from .. import config
+from .._logging import ensure_utf8_output
 
 PY = sys.executable
 
@@ -76,7 +77,10 @@ def main():
                     help="학습 전에 리플레이 혼합 데이터셋을 먼저 만든다")
     ap.add_argument("--force", action="store_true",
                     help="라벨이 0개인 클래스가 있어도 진행한다")
+    ap.add_argument("--skip-gate", action="store_true",
+                    help="병합 후 회귀 게이트를 건너뛴다(권장하지 않음)")
     args = ap.parse_args()
+    ensure_utf8_output()
 
     if args.replay:
         run("0/2 리플레이 데이터셋 생성", "replay")
@@ -101,8 +105,25 @@ def main():
             "층화 리플레이를 섞거나, --force 로 강행하세요."
         )
 
-    run("1/2 LoRA 학습 (검출기)", "train_lora")
-    run("2/2 LoRA 합치기 (merge)", "merge")
+    run("1/3 LoRA 학습 (검출기)", "train_lora")
+    run("2/3 LoRA 합치기 (merge)", "merge")
+
+    # 3/3 회귀 게이트 — 현장 held-out 이 있으면 통과해야 배포 후보가 된다.
+    holdout = os.path.join(config.HOLDOUT_DATA_DIR, "valid", "_annotations.coco.json")
+    if args.skip_gate:
+        print("\n⚠️ 3/3 회귀 게이트 건너뜀(--skip-gate). 배포 전 수동 확인 필요.")
+    elif not os.path.exists(holdout):
+        print(f"\n⚠️ 3/3 회귀 게이트 건너뜀 — 현장 held-out 평가셋이 없습니다({holdout}).")
+        print("   현장 프레임을 찍어 `dr-onsite-ingest --holdout` 으로 쌓으면 다음 라운드부터 "
+              "자동 판정됩니다.")
+    else:
+        cmd = [PY, "-m", "dr_onsite_adap.pipeline.eval_gate",
+               "--base", config.BASE_WEIGHTS, "--cand", config.FINAL_WEIGHTS]
+        print(f"\n{'='*60}\n▶ 3/3 회귀 게이트\n  {' '.join(cmd)}\n{'='*60}", flush=True)
+        rc = subprocess.run(cmd).returncode
+        if rc != 0:
+            sys.exit("❌ 회귀 게이트 실패 — 이 가중치는 배포 후보가 아닙니다. "
+                     "리플레이를 섞거나 라벨을 보강해 다시 도세요(강행: --skip-gate).")
 
     print("\n🎉 라운드 완료.")
     print(f"   • 새 가중치: {config.FINAL_WEIGHTS}")

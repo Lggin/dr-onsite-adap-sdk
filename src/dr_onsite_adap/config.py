@@ -174,6 +174,10 @@ OCCLUSION_HIDDEN_FRACTION = float(os.environ.get("DEPAL_OCCLUSION_FRAC", "0.5"))
 BASE_WEIGHTS = str(_env_path("DEPAL_BASE_WEIGHTS", WEIGHTS_DIR / "base.pth"))
 # Training set dir (COCO train/valid). Defaults to the active-learning data.
 TRAIN_DATA_DIR = os.environ.get("DEPAL_TRAIN_DATA", str(DATA_DIR))
+# 현장 held-out 평가셋(학습 금지). `dr-onsite-ingest --holdout` 이 여기에만 쌓고,
+# `dr-onsite-gate` 가 이걸로 회귀를 판정한다. 학습셋과 물리적으로 분리해 두는 이유는
+# 2026-08-06 확인 — 지금까지 현장 라벨 42장이 전부 학습에 쓰여 held-out 이 0장이었다.
+HOLDOUT_DATA_DIR = str(_env_path("DEPAL_HOLDOUT_DIR", DEPAL_HOME / "data" / "field_holdout"))
 LORA_SAFE_DIR = str(_env_path("DEPAL_LORA_SAFE", DEPAL_HOME / "runs" / "lora_safe"))
 LORA_RUN_DIR = str(_env_path("DEPAL_LORA_RUN", DEPAL_HOME / "runs" / "lora_run"))
 # Merged single-file output of a round.
