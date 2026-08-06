@@ -129,8 +129,12 @@ def main():
     cap = FieldCapture(args.out, args.min_diff, args.depth or None)
     backend = resolve_backend(config.CAMERA_BACKEND)
     cls = load_camera_class(backend)
+    # 생성 규약은 GUI/라이브 앱과 동일: (width, height, fps, use_imu=...).
     # 시리얼 지정은 orbbec 만 지원(여러 대 연결 상황이 orbbec 뿐).
-    camera = cls(device_serial=args.serial) if (args.serial and backend == "orbbec") else cls()
+    kw = {"use_imu": config.USE_IMU}
+    if args.serial and backend == "orbbec":
+        kw["device_serial"] = args.serial
+    camera = cls(config.CAM_WIDTH, config.CAM_HEIGHT, config.CAM_FPS, **kw)
     who = f"[{args.serial}] " if args.serial else ""
     print(f"📷 {who}{backend} 카메라 → {cap.out_dir}")
 
