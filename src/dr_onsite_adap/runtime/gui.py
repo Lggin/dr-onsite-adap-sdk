@@ -236,6 +236,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.last_pack = None          # (color, depth, intr, up)  ROI 적용 후
         self.last_color_raw = None     # ROI 적용 후 원본(라벨링용)
+        self._capture = None           # FieldCapture (지연 생성)
+        self._cap_timer = QtCore.QTimer(self)
+        self._cap_timer.timeout.connect(self._capture_tick)
         self.state = None
         self.state_intr = None
         self.state_up = None
@@ -317,9 +320,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_dump.setToolTip("현재 프레임의 RGB+depth+검출마스크를 ~/geom_captures/ 에 저장 "
                                  "(기하/클러스터링 오프라인 튜닝용)")
         self.btn_dump.clicked.connect(self.do_dump)
+        # 현장 평가셋 촬영 — 검출을 멈추지 않고 흘러가는 프레임만 저장한다.
+        self.btn_cap_one = QtWidgets.QPushButton("📷  1장 촬영")
+        self.btn_cap_one.setShortcut("p")
+        self.btn_cap_one.setToolTip(f"지금 화면을 평가셋 촬영 폴더에 저장 (단축키 p)\n"
+                                    f"→ {config.FIELD_CAPTURE_DIR}")
+        self.btn_cap_one.clicked.connect(self.do_capture_one)
+        self.btn_cap_auto = QtWidgets.QPushButton("📷  자동 촬영")
+        self.btn_cap_auto.setCheckable(True)
+        self.btn_cap_auto.setShortcut("Shift+P")
+        self.btn_cap_auto.setToolTip(
+            f"{config.CAPTURE_INTERVAL_S:.0f}초마다 자동 저장 (단축키 Shift+P). 검출·속도에 영향 없음.\n"
+            "직전 저장분과 화면이 거의 같으면 건너뜁니다(한 장면 1프레임).\n"
+            "라벨은 나중에 dr-onsite-label 로 몰아서 하세요.")
+        self.btn_cap_auto.toggled.connect(self._toggle_capture)
         for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_proto,
                   self.btn_proto_clear, self.btn_3d, self.btn_roi,
-                  self.btn_roi_clear, self.btn_label, self.btn_up, self.btn_reload,
+                  self.btn_roi_clear, self.btn_label, self.btn_cap_one, self.btn_cap_auto,
+                  self.btn_up, self.btn_reload,
                   self.btn_promote, self.btn_dump, self.btn_clear):
             b.setMinimumHeight(40)
             b.setEnabled(False)
@@ -795,6 +813,45 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_status("ROI 해제 (전체 화면)")
 
     # ── 라벨링 (cv2 라벨러 재사용; 카메라 잠시 멈춤) ──
+    # ── 현장 평가셋 촬영 ──────────────────────────────────────────────
+    def _ensure_capture(self):
+        if self._capture is None:
+            from .capture import FieldCapture
+            self._capture = FieldCapture()
+        return self._capture
+
+    def do_capture_one(self):
+        """지금 프레임 1장 저장(중복 검사 무시)."""
+        if self.last_pack is None:
+            self._set_status("촬영할 프레임이 없습니다")
+            return
+        cap = self._ensure_capture()
+        color, depth, intr, up = self.last_pack
+        path = cap.save(color, depth, intr, up, force=True)
+        self._set_status(f"📷 {cap.n_saved}장 저장  ({os.path.basename(path)})" if path
+                         else "📷 저장 실패")
+
+    def _toggle_capture(self, on):
+        if on:
+            cap = self._ensure_capture()
+            self._cap_timer.start(int(config.CAPTURE_INTERVAL_S * 1000))
+            self._set_status(f"📷 자동 촬영 시작 ({config.CAPTURE_INTERVAL_S:.0f}초 간격) "
+                             f"→ {cap.out_dir}")
+        else:
+            self._cap_timer.stop()
+            cap = self._capture
+            n = cap.n_saved if cap else 0
+            self._set_status(f"📷 자동 촬영 중지 — 이번 세션 {n}장")
+
+    def _capture_tick(self):
+        """타이머 콜백. 화면이 충분히 달라졌을 때만 저장(연속 중복 방지)."""
+        if self.last_pack is None:
+            return
+        cap = self._ensure_capture()
+        color, depth, intr, up = self.last_pack
+        if cap.save(color, depth, intr, up):
+            self._set_status(f"📷 자동 촬영 {cap.n_saved}장 (중복 건너뜀 {cap.n_skipped})")
+
     def do_label(self):
         if self.labeler is None or self.last_color_raw is None:
             return

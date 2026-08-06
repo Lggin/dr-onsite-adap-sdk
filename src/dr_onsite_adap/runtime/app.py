@@ -150,6 +150,9 @@ def main():
     smoother = DetectionSmoother()   # 실시간 모드 깜빡임 방지(시간축 안정화)
     fps_ema = 0.0
     last_t = time.time()
+    field_cap = None          # 현장 평가셋 촬영(p/P). 필요할 때 만든다.
+    cap_auto = False
+    cap_next_t = 0.0
     try:
         while True:
             frame_pack = camera.read()
@@ -223,6 +226,13 @@ def main():
             cv2.imshow(WIN, color)
 
             key = cv2.waitKey(1) & 0xFF
+            # 현장 평가셋 자동 촬영 — 검출을 멈추지 않고 프레임만 저장(p=1장, P=자동)
+            if cap_auto and time.time() >= cap_next_t:
+                cap_next_t = time.time() + config.CAPTURE_INTERVAL_S
+                if field_cap.save(color_raw, depth_m, intr, up_dir):
+                    print(f"📷 자동 촬영 {field_cap.n_saved}장 "
+                          f"(중복 건너뜀 {field_cap.n_skipped})", flush=True)
+
             if key == ord("q"):
                 break
             if key == ord("d"):
@@ -239,6 +249,19 @@ def main():
             if key == ord("v") and detection_state is not None:
                 dets = build_detections_3d(detection_state)
                 show_snapshot(dets, up_dir=state_up_dir)
+            if key in (ord("p"), ord("P")):
+                if field_cap is None:
+                    from .capture import FieldCapture
+                    field_cap = FieldCapture()
+                if key == ord("p"):
+                    path = field_cap.save(color_raw, depth_m, intr, up_dir, force=True)
+                    print(f"📷 {field_cap.n_saved}장 저장 → {path}", flush=True)
+                else:
+                    cap_auto = not cap_auto
+                    cap_next_t = 0.0
+                    print(f"📷 자동 촬영 {'시작' if cap_auto else '중지'} "
+                          f"({config.CAPTURE_INTERVAL_S:.0f}초 간격) → {field_cap.out_dir}",
+                          flush=True)
             if key == ord("c"):
                 detection_state = None
                 state_intr = None

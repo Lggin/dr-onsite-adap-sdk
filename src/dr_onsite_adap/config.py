@@ -178,6 +178,14 @@ TRAIN_DATA_DIR = os.environ.get("DEPAL_TRAIN_DATA", str(DATA_DIR))
 # `dr-onsite-gate` 가 이걸로 회귀를 판정한다. 학습셋과 물리적으로 분리해 두는 이유는
 # 2026-08-06 확인 — 지금까지 현장 라벨 42장이 전부 학습에 쓰여 held-out 이 0장이었다.
 HOLDOUT_DATA_DIR = str(_env_path("DEPAL_HOLDOUT_DIR", DEPAL_HOME / "data" / "field_holdout"))
+
+# 현장 평가셋 촬영(runtime/capture.py). 검출을 멈추지 않고 프레임만 쌓는 폴더.
+FIELD_CAPTURE_DIR = str(_env_path("DEPAL_FIELD_CAPTURE_DIR", DEPAL_HOME / "field_captures"))
+CAPTURE_INTERVAL_S = float(os.environ.get("DEPAL_CAPTURE_INTERVAL", "3.0"))
+# 직전 저장분 대비 최소 화면 차이(0~255 평균). 연속 프레임 중복을 걸러 "한 장면 1프레임"을
+# 유지한다 — 평가셋에서 거의 같은 프레임은 표본 수만 부풀리고 판정을 왜곡한다. 0 이면 끔.
+CAPTURE_MIN_DIFF = float(os.environ.get("DEPAL_CAPTURE_MIN_DIFF", "6.0"))
+CAPTURE_SAVE_DEPTH = os.environ.get("DEPAL_CAPTURE_DEPTH", "0") == "1"
 LORA_SAFE_DIR = str(_env_path("DEPAL_LORA_SAFE", DEPAL_HOME / "runs" / "lora_safe"))
 LORA_RUN_DIR = str(_env_path("DEPAL_LORA_RUN", DEPAL_HOME / "runs" / "lora_run"))
 # Merged single-file output of a round.

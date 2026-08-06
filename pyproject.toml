@@ -43,6 +43,8 @@ dr-onsite-train = "dr_onsite_adap.pipeline.train_lora:main"
 dr-onsite-merge = "dr_onsite_adap.pipeline.merge:main"
 dr-onsite-eval = "dr_onsite_adap.pipeline.eval:main"
 dr-onsite-gate = "dr_onsite_adap.pipeline.eval_gate:main"
+dr-onsite-capture = "dr_onsite_adap.runtime.capture:main"
+dr-onsite-label = "dr_onsite_adap.pipeline.label_batch:main"
 dr-onsite-dataset = "dr_onsite_adap.pipeline.dataset:main"
 dr-onsite-round = "dr_onsite_adap.pipeline.round:main"
 
