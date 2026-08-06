@@ -13,6 +13,24 @@ import sys
 _PKG = "dr_onsite_adap"
 
 
+def ensure_utf8_output() -> None:
+    """stdout/stderr 를 UTF-8 로 고정한다(한글 출력이 로케일 때문에 죽는 것 방지).
+
+    cron·systemd·서브프로세스처럼 로케일이 안 잡힌 환경에서는 stdout 인코딩이 ascii 가 되고,
+    한글이나 이모지를 print 하는 순간 UnicodeEncodeError 로 **명령이 실패**한다. 실제로
+    2026-08-03 에는 이 원인으로 학습이 첫 검증 epoch 에서 죽었고(progress.log 파일 인코딩),
+    2026-08-06 에는 회귀 게이트가 판정은 PASS 인데 종료코드 1 을 돌려줬다(마지막 print 가 터져서).
+    판정 결과를 종료코드로 쓰는 도구에서 이건 곧 오판이므로 진입점에서 못 박는다.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            enc = (getattr(stream, "encoding", "") or "").lower().replace("-", "")
+            if enc not in ("utf8", "utf8mb4") and hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass   # 재설정 불가한 스트림(파이프 래핑 등)은 그대로 둔다
+
+
 def setup_cli_logging(level: int = logging.INFO) -> None:
     """패키지 로거에 stdout 핸들러를 1회 부착(idempotent). CLI main 에서 호출."""
     logger = logging.getLogger(_PKG)

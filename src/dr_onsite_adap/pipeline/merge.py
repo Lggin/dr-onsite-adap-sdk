@@ -18,9 +18,11 @@ from rfdetr import RFDETRSegMedium
 from peft import PeftModel
 
 from .. import config
+from .._logging import ensure_utf8_output
 
 
 def main():
+    ensure_utf8_output()
     print(f"1️⃣ load base ({config.NUM_CLASSES} classes): {config.BASE_WEIGHTS}")
     wrapper = RFDETRSegMedium(num_classes=config.NUM_CLASSES, device="cuda",
                               pretrain_weights=config.BASE_WEIGHTS)

@@ -17,6 +17,7 @@ import random
 import numpy as np
 
 from .. import config
+from .._logging import ensure_utf8_output
 from ..runtime.inference import SegModel
 
 CLASSES = {cid: name for cid, (name, _) in config.CLASSES.items()}   # config 순서 따름
@@ -60,6 +61,7 @@ def main():
     ap.add_argument("--n", type=int, default=250, help="평가할 이미지 수")
     ap.add_argument("--device", default="cuda", help="cpu 또는 cuda")
     args = ap.parse_args()
+    ensure_utf8_output()
 
     models = {}
     for spec in args.models:

@@ -26,6 +26,7 @@ from rfdetr import RFDETRSegMedium
 from peft import LoraConfig, get_peft_model
 
 from .. import config
+from .._logging import ensure_utf8_output
 from ..exceptions import PipelineError
 
 # main() 이 실제 적용 batch_size(해상도 혼재 시 1 로 자동 다운그레이드된 값)를
@@ -390,6 +391,7 @@ def _make_custom_fit(original_fit):
 
 
 def main():
+    ensure_utf8_output()
     print(f"🧠 1. base model ({config.NUM_CLASSES} classes) ← {config.BASE_WEIGHTS}")
     wrapper = RFDETRSegMedium(num_classes=config.NUM_CLASSES, device="cuda",
                               pretrain_weights=config.BASE_WEIGHTS)
