@@ -334,11 +334,15 @@ class MainWindow(QtWidgets.QMainWindow):
             "직전 저장분과 화면이 거의 같으면 건너뜁니다(한 장면 1프레임).\n"
             "라벨은 나중에 dr-onsite-label 로 몰아서 하세요.")
         self.btn_cap_auto.toggled.connect(self._toggle_capture)
-        for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_proto,
-                  self.btn_proto_clear, self.btn_3d, self.btn_roi,
-                  self.btn_roi_clear, self.btn_label, self.btn_cap_one, self.btn_cap_auto,
-                  self.btn_up, self.btn_reload,
-                  self.btn_promote, self.btn_dump, self.btn_clear):
+        # ⚠️ 사이드바 버튼은 **이 목록 하나**로 관리한다. 생성 목록과 활성화 목록이
+        #    따로 있으면 새 버튼이 영원히 비활성으로 남는다(2026-08-06 촬영 버튼이 그랬다).
+        self._side_btns = (self.btn_detect, self.btn_live, self.btn_group, self.btn_proto,
+                           self.btn_proto_clear, self.btn_3d, self.btn_roi,
+                           self.btn_roi_clear, self.btn_label,
+                           self.btn_cap_one, self.btn_cap_auto,
+                           self.btn_up, self.btn_reload, self.btn_promote,
+                           self.btn_dump, self.btn_clear)
+        for b in self._side_btns:
             b.setMinimumHeight(40)
             b.setEnabled(False)
             side.addWidget(b)
@@ -387,11 +391,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.model = model
         self.active_weight_path = config.WEIGHTS_PATH
         self.labeler = labeler
-        for b in (self.btn_detect, self.btn_live, self.btn_group, self.btn_proto,
-                  self.btn_proto_clear, self.btn_3d, self.btn_roi,
-                  self.btn_roi_clear, self.btn_up, self.btn_reload, self.btn_promote,
-                  self.btn_dump, self.btn_clear):
+        for b in self._side_btns:
             b.setEnabled(True)
+        # 라벨링만 SAM 로드 성공 여부에 달려 있다(촬영은 SAM 없이도 된다).
         self.btn_label.setEnabled(labeler is not None)
         self._set_status("준비 완료 — '검출' 또는 '실시간 검출'을 누르세요")
 
