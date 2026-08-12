@@ -64,11 +64,17 @@ def main():
     if args.limit:
         todo = todo[:args.limit]
 
+    # ⚠️ 순서 주의: torch/torchvision 을 끌어오는 labeler 임포트보다 **먼저** 예열해야 한다.
+    #    (예열 전에 torchvision 이 로드되면 cv2 창 생성이 무한 대기 — gui_backend 참고)
+    from ..runtime.gui_backend import warmup as _warmup_gui
+    _warmup_gui()
+
     from ..runtime.labeler import SAMLabeler
 
     os.makedirs(done_dir, exist_ok=True)
-    labeler = SAMLabeler(config.SAM_CHECKPOINT, cap_dir,
-                         {c: n for c, (n, _col) in config.CLASSES.items()},
+    # SAMLabeler 는 config.CLASSES 형식({id: (이름, 색)})을 그대로 받는다 — 라벨 확정 시
+    # `name, color = self.classes[cid]` 로 색까지 꺼내 쓴다. 이름만 넘기면 그 자리에서 터진다.
+    labeler = SAMLabeler(config.SAM_CHECKPOINT, cap_dir, config.CLASSES,
                          sam_type=config.SAM_TYPE, device=config.SAM_DEVICE)
     keys = "  ".join(f"{c}={n}" for c, (n, _col) in sorted(config.CLASSES.items()))
     print(f"클래스 키: {keys}")

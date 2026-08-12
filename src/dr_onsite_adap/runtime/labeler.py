@@ -39,6 +39,9 @@ class SAMLabeler:
         # 클래스 확정용 숫자 키 — config.CLASSES 에서 동적으로 끌어와 클래스 수가
         # 늘어도(예: 3=Pallet 추가) 깨지지 않게 한다. {ord('3'): 3, ...}
         self.class_keys = {ord(str(c)): c for c in classes if 0 <= c <= 9}
+        # HUD 는 이미지를 가리지 않도록 **아래 여백**에 그린다. 'h' 로 끄면 여백도 없어져
+        # 이미지만 남는다(프레임 간 유지 — 매 장 다시 끄지 않아도 된다).
+        self.hud_on = True
         print(f"Loading SAM ({sam_type}, {device}) ← {sam_checkpoint}")
         sam = sam_model_registry[sam_type](checkpoint=sam_checkpoint)
         sam.to(device=device)
@@ -80,28 +83,40 @@ class SAMLabeler:
                         fg, 1, cv2.LINE_AA)
             y += lh
 
-    def _hud(self, img):
-        """라벨링 창에 '조작법 + 실시간 상태'를 항상 표시 — 터미널 안 봐도 됨.
-        (cv2 폰트가 한글 미지원이라 영문으로 표기)."""
-        h = img.shape[0]
+    HUD_H = 3 * 24 + 12          # 상태 1줄 + 조작법 2줄 (+ 위아래 여백)
+
+    def _hud(self, canvas, y_top):
+        """이미지 **아래 여백**(y_top 부터)에 '조작법 + 실시간 상태'를 그린다.
+
+        예전에는 이미지 위에 반투명으로 얹었는데, 하단 객체를 가려서 라벨링에 방해가 됐다.
+        여백에 그리면 픽셀을 하나도 가리지 않고, 이미지가 캔버스 좌상단에 그대로 있으므로
+        마우스 좌표 ↔ 픽셀 1:1 대응도 유지된다. (cv2 폰트가 한글 미지원이라 영문 표기)
+        """
         legend = "  ".join(f"{c}:{self.classes[c][0]}"
                            for c in sorted(self.class_keys.values()))
         mode = "POLYGON" if self.poly_mode else "SAM"
-        # 상단: 모드 + 현재 상태 + 확정 개수(자동)
-        self._bar(img, [f"[{mode}]  {self._status}   |  confirmed: {len(self.annotations)}"],
-                  0, scale=0.6, fg=(0, 255, 255))
-        # 하단: 조작법(모드별) + 클래스 키
+        self._bar(canvas, [f"[{mode}]  {self._status}   |  confirmed: {len(self.annotations)}"],
+                  y_top, scale=0.6, fg=(0, 255, 255))
         if self.poly_mode:
             l1 = "POLYGON:  L-click=add point   R-click=remove point   f=finish   p=back to SAM"
         else:
             l1 = "drag=box (SAM)   L-click=include point   R-click=exclude point   p=polygon"
-        l2 = f"confirm class -> {legend}      z=undo     Enter=SAVE     ESC=cancel"
-        self._bar(img, [l1, l2], h - (2 * 24 + 12), scale=0.5, fg=(255, 255, 255))
+        l2 = f"confirm class -> {legend}    z=undo   h=hide HUD   Enter=SAVE   ESC=cancel"
+        self._bar(canvas, [l1, l2], y_top + 24 + 6, scale=0.5, fg=(255, 255, 255))
 
     def _show(self, img):
-        """HUD(안내/상태)를 얹어 창에 표시. 모든 화면 갱신은 이걸 통한다."""
-        self._hud(img)
-        cv2.imshow(self.WINDOW_NAME, img)
+        """HUD 여백을 덧붙여 창에 표시. 모든 화면 갱신은 이걸 통한다.
+
+        ``img`` 자체는 건드리지 않는다(HUD 가 작업 이미지에 눌어붙지 않게).
+        """
+        if not self.hud_on:
+            cv2.imshow(self.WINDOW_NAME, img)
+            return
+        h, w = img.shape[:2]
+        canvas = np.zeros((h + self.HUD_H, w, 3), img.dtype)
+        canvas[:h] = img
+        self._hud(canvas, h)
+        cv2.imshow(self.WINDOW_NAME, canvas)
 
     def _rebuild(self):
         """현재 self.annotations 만으로 화면(confirmed_img)과 mask_canvas 를 다시 그린다.
@@ -216,6 +231,10 @@ class SAMLabeler:
         print(f"  mask updated (score {scores[0]:.2f})")
 
     def _on_mouse(self, event, x, y, flags, param):
+        # 캔버스가 이미지보다 HUD 여백만큼 크다. 여백에서 일어난 좌표는 이미지 끝으로
+        # 당겨서 쓴다 — 무시해 버리면 여백에서 손을 뗀 드래그가 박스로 확정되지 않는다.
+        if self.base_img is not None:
+            y = min(y, self.base_img.shape[0] - 1)
         # 폴리곤 모드: 좌클릭=정점 추가, 우클릭=마지막 점 취소. (SAM 마우스 동작 우회)
         if self.poly_mode:
             if event == cv2.EVENT_LBUTTONDOWN:
@@ -278,7 +297,8 @@ class SAMLabeler:
         print("  [SAM] 드래그=박스, 좌클릭=포함점, 우클릭=제외점")
         print("  [폴리곤] 'p'=모드 토글, 좌클릭=점 찍기, 우클릭=점 취소, 'f'=완성")
         print(f"  마스크 확정용 숫자키: {keyhint} (반복 가능)")
-        print("  'z'=마지막 라벨 취소(되돌리기)  /  Enter=저장  /  ESC=프레임 전체 취소\n")
+        print("  'z'=마지막 라벨 취소(되돌리기)  /  'h'=화면 안내 끄기/켜기"
+              "  /  Enter=저장  /  ESC=프레임 전체 취소\n")
 
         self.predictor.set_image(rgb_frame)
         # AUTOSIZE 유지(창=이미지 1:1 → 마우스 좌표가 픽셀과 정확히 일치).
@@ -297,6 +317,10 @@ class SAMLabeler:
                 k = cv2.waitKey(1) & 0xFF
                 if k == ord("z"):
                     self._undo_last()
+                elif k == ord("h"):
+                    self.hud_on = not self.hud_on
+                    self._show(self.temp_img)
+                    print("  HUD:", "ON" if self.hud_on else "OFF (이미지만 표시)")
                 elif k == ord("p"):
                     self.poly_mode = not self.poly_mode
                     self.poly_pts = []
