@@ -21,13 +21,22 @@
 이미지는 심볼릭 링크로 연결합니다(원본 보존·디스크 절약). 파일명 충돌은 al_/rp_
 접두어로 피합니다.
 
+**고정 명단(manifest)**: 시드는 고정이지만 추출 결과는 **소스 내용에 의존**한다 —
+소스에 이미지가 한 장만 늘어도 shuffle 이 달라져 400장이 통째로 바뀌고, rng 를
+train→valid 로 이어 쓰므로 --k-train 을 바꾸면 valid 선택까지 흔들린다. 그래서 처음
+뽑은 파일명을 `DEPAL_REPLAY_MANIFEST` 에 기록해 두고 다음 라운드부터 그대로 재사용한다.
+라운드 간 비교에서 "리플레이가 바뀌어서 점수가 달라진" 교란을 없애기 위함이다.
+
 사용법:
   dr-onsite-replay                       # config 기본 경로/설정으로 생성
-  dr-onsite-replay --k-train 400 --k-valid 100   # 리플레이 샘플 수 조절
+  dr-onsite-replay --k-train 400 --k-valid 100   # 리플레이 샘플 수 조절(최초 1회만 유효)
   dr-onsite-replay --per-class-min 60            # 클래스별 최소 보장 수
+  dr-onsite-replay --refresh-manifest            # 명단 재추출(소스가 바뀌었을 때)
+  dr-onsite-replay --no-manifest                 # 명단 없이 매번 추출(예전 동작)
   dr-onsite-replay --al DIR --replay-src DIR --out DIR   # 경로 직접 지정
 """
 import argparse
+import datetime
 import json
 import os
 import random
@@ -100,12 +109,44 @@ def main():
     ap.add_argument("--exclude-prefix", default="lee5synth",
                     help="이 접두어로 시작하는 실측 이미지는 제외(실측에 섞여 있던 "
                          "옛 합성 데이터 누수 방지). 빈 문자열이면 전부 포함")
+    ap.add_argument("--manifest", default=config.REPLAY_MANIFEST,
+                    help="리플레이 고정 명단(json). 있으면 그 파일명 그대로 쓰고, "
+                         "없으면 층화추출한 뒤 이 경로에 기록한다")
+    ap.add_argument("--refresh-manifest", action="store_true",
+                    help="기존 명단을 버리고 다시 뽑아 덮어쓴다(소스가 바뀌었을 때)")
+    ap.add_argument("--no-manifest", action="store_true",
+                    help="명단을 쓰지 않고 매번 층화추출한다(예전 동작)")
     args = ap.parse_args()
     AL = str(args.al)
     SRC = str(args.replay_src_alias or args.replay_src)
     OUT = str(args.out)
     PCM = max(0, int(args.per_class_min))
     rng = random.Random(0)   # 결정론적 추출(라운드 재현성)
+
+    # ── 고정 명단(manifest) ──────────────────────────────────────────────
+    # 시드가 고정이라도 뽑히는 장수는 **소스 내용에 의존**한다: 소스에 이미지가 하나만
+    # 추가돼도 shuffle 결과가 통째로 바뀌고, rng 를 train→valid 로 이어 쓰므로
+    # --k-train 을 바꾸면 valid 선택까지 흔들린다. 그래서 라운드 간 리플레이를 진짜로
+    # 고정하려면 **뽑힌 파일명을 기록해 두고 재사용**해야 한다.
+    MANIFEST = None if args.no_manifest else os.path.expanduser(str(args.manifest))
+    man = {}
+    if MANIFEST and os.path.isfile(MANIFEST) and not args.refresh_manifest:
+        with open(MANIFEST, encoding="utf-8") as f:
+            man = json.load(f)
+        # 명단이 소스 폴더 **안에** 있으면 그 데이터셋과 함께 배포된 것이므로 짝이 맞다.
+        # (기계마다 경로가 달라 절대경로 비교는 Thor 등에서 헛경고를 낸다)
+        shipped = os.path.abspath(MANIFEST).startswith(os.path.abspath(SRC) + os.sep)
+        if (not shipped and man.get("replay_src")
+                and os.path.abspath(man["replay_src"]) != os.path.abspath(SRC)):
+            print(f"⚠️ 명단이 기록된 소스와 다릅니다: 명단={man['replay_src']} / 지금={SRC}")
+            print("   같은 파일명이 없으면 그만큼 빠집니다. 새로 뽑으려면 --refresh-manifest")
+        print(f"📌 고정 명단 사용: {MANIFEST}  "
+              + " ".join(f"{sp}={len(man.get('picks', {}).get(sp, []))}장"
+                         for sp in ("train", "valid")))
+    elif MANIFEST:
+        print(f"📌 고정 명단 없음 → 이번에 뽑아서 기록합니다: {MANIFEST}")
+
+    new_picks = {}
 
     print(f"🔀 리플레이 소스: {SRC}  (클래스별 최소 {PCM}장 보장 + 무작위 채움)")
     for sp in ["train", "valid"]:
@@ -150,7 +191,19 @@ def main():
         for i, alist in ranns.items():
             for c in {a["category_id"] for a in alist}:
                 imgs_by_cat[c].append(i)
-        pick = stratified_pick(imgs_by_cat, list(rp_imgs.keys()), K, PCM, rng)
+        # 명단이 있으면 그 **파일명**으로 고른다. image_id 는 COCO 를 다시 만들면 바뀌지만
+        # 파일명은 그대로라, 고정 키로는 파일명이 맞다.
+        want = (man.get("picks") or {}).get(sp) if man else None
+        if want:
+            by_name = {im["file_name"]: i for i, im in rp_imgs.items()}
+            pick = [by_name[n] for n in want if n in by_name]
+            gone = len(want) - len(pick)
+            if gone:
+                print(f"   ⚠️ [{sp}] 명단 {len(want)}장 중 {gone}장이 소스에 없습니다 "
+                      f"→ 그만큼 적게 섞입니다(--refresh-manifest 로 재추출)")
+        else:
+            pick = stratified_pick(imgs_by_cat, list(rp_imgs.keys()), K, PCM, rng)
+        new_picks[sp] = [rp_imgs[i]["file_name"] for i in pick]
 
         # 리플레이 선택 결과의 클래스별 커버리지 요약(보존 확인용).
         cov = Counter()
@@ -181,6 +234,19 @@ def main():
         print(f"[{sp}] {len(merged['images'])}장 (실측 {n_real} + 리플레이 {iid-n_real}) | "
               + ", ".join(f"{NAMES.get(k, k)}:{cc[k]}" for k in sorted(cc)))
         print(f"        리플레이 클래스 커버리지(이미지 수): {cov_s}")
+
+    # 명단이 없었거나 --refresh-manifest 였으면 이번 선택을 기록해 다음 라운드부터 고정.
+    if MANIFEST and not man:
+        os.makedirs(os.path.dirname(MANIFEST) or ".", exist_ok=True)
+        with open(MANIFEST, "w", encoding="utf-8") as f:
+            json.dump({"replay_src": os.path.abspath(SRC),
+                       "per_class_min": PCM,
+                       "created": datetime.datetime.now().isoformat(timespec="seconds"),
+                       "picks": new_picks}, f, ensure_ascii=False, indent=1)
+        print(f"📌 고정 명단 기록됨 → {MANIFEST}  "
+              + " ".join(f"{sp}={len(new_picks.get(sp, []))}장" for sp in ("train", "valid")))
+        print("   다음 라운드부터는 이 명단을 그대로 씁니다(소스가 바뀌어도 동일). "
+              "다시 뽑으려면 --refresh-manifest")
 
 
 if __name__ == "__main__":

@@ -209,14 +209,30 @@ OPERATIONAL_WEIGHTS = str(_env_path("DEPAL_OPERATIONAL_WEIGHTS", WEIGHTS_DIR / "
 
 # Synthetic dataset (with pallet labels) used as replay source + eval held-out.
 PALLET_DATA_DIR = os.environ.get("DEPAL_PALLET_DATA", str(DEPAL_HOME / "data" / "pallet_synth"))
-# 리플레이 소스 데이터셋(층화추출로 전 클래스 보존). 기본은 PALLET_DATA_DIR(하위호환);
-# 전체 클래스 보존을 원하면 DEPAL_REPLAY_SRC 를 final_dataset(5클래스) 로 지정.
-REPLAY_SRC_DIR = os.environ.get("DEPAL_REPLAY_SRC", PALLET_DATA_DIR)
+# 리플레이 소스 데이터셋. 기본 = **고정 리플레이 셋 `replay_fixed_v11`**
+# (2026-08-12 생성, train 400 + valid 100, v11 5클래스).
+#   · 출처는 final_dataset_ultimate — 현 운영 모델의 학습셋. 리플레이의 목적이 "베이스가
+#     이미 배운 것을 유지"시키는 것이므로 그 모델이 학습한 데이터에서 뽑는 게 맞다.
+#   · 만들 때 두 가지를 걸렀다: 현장 프레임의 ×50 오버샘플링 중복(같은 사진이 400장을
+#     잠식), train·valid 교차 23장(ingest 가 현장 라벨을 양쪽에 넣기 때문 → valid 가
+#     held-out 이 아니게 됨). 상세는 데이터셋 안 README.md.
+#   · ⚠️ valid 의 Slip Sheet 는 3장뿐(소스 valid 자체에 3장) — 슬립시트 회귀 판정은
+#     현장 held-out + `dr-onsite-gate` 로 볼 것.
+# 예전 동작(합성 팔레트셋에서 매 라운드 추출)으로 돌리려면 DEPAL_REPLAY_SRC 지정.
+REPLAY_SRC_DIR = os.environ.get("DEPAL_REPLAY_SRC",
+                                str(DEPAL_HOME / "data" / "replay_fixed_v11"))
 # 리플레이에서 각 클래스별로 최소 보장할 이미지 수(가용 범위 내). 희귀 클래스
 # (슬립시트 등)가 무작위 추출에서 누락되는 것을 막는다. K 를 초과하면 희귀 우선.
 REPLAY_PER_CLASS_MIN = int(os.environ.get("DEPAL_REPLAY_PER_CLASS_MIN", "40"))
 # Output dir for the replay-mixed training set builder.
 REPLAY_OUT_DIR = os.environ.get("DEPAL_REPLAY_OUT", str(DEPAL_HOME / "data" / "replay_round"))
+# 리플레이 고정 명단. 한 번 뽑은 train/valid 파일명을 여기 기록해 **라운드마다 같은
+# 리플레이**를 쓰게 한다(시드가 고정이어도 소스 내용이 바뀌면 추출 결과가 달라지므로
+# 명단 없이는 고정되지 않는다). 다시 뽑으려면 `dr-onsite-replay --refresh-manifest`.
+# 기본값은 고정 셋 안의 명단 — 데이터셋과 명단이 함께 움직여 짝이 어긋나지 않는다.
+REPLAY_MANIFEST = os.environ.get(
+    "DEPAL_REPLAY_MANIFEST",
+    str(DEPAL_HOME / "data" / "replay_fixed_v11" / "replay_manifest.json"))
 
 # LoRA hyperparameters (shared across rounds).
 LORA_R = int(os.environ.get("DEPAL_LORA_R", "32"))
