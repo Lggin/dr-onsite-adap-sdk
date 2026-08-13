@@ -41,6 +41,14 @@ def _uf_find(par, a):
 
 
 def _uf_group(vecs, scale, bw, tau):
+    """단일연결(single-linkage) — 거리<tau 인 쌍을 union-find 로 잇는다.
+
+    ⚠️ 사슬(chaining) 에 취약하다: 두 무리 사이에 **가까운 쌍이 하나만** 생겨도 무리
+    전체가 통째로 붙는다. 2026-08-13 실측 — 파란 인쇄박스 308개 무리와 네이비 무지박스
+    6개 무리가 최소 쌍거리 1.326 vs tau 1.30 으로 **0.026 차이**로 겨우 갈려 있었고,
+    거리 기준을 조금만 바꾸자 바로 병합됐다(두 무리의 중심 거리는 4.42→5.61 로 오히려
+    멀어졌는데도). 그래서 기본은 완전연결(_group_link)을 쓴다.
+    """
     n = len(vecs)
     if n == 1:
         return [0]
@@ -52,6 +60,49 @@ def _uf_group(vecs, scale, bw, tau):
                 par[_uf_find(par, a)] = _uf_find(par, b)
     roots = {}
     return [roots.setdefault(_uf_find(par, a), len(roots)) for a in range(n)]
+
+
+def _group_link(vecs, scale, bw, tau, linkage="complete"):
+    """응집형 군집. linkage='single'|'complete'|'average'.
+
+    complete — 두 무리를 합치려면 **모든 쌍**이 tau 안이어야 한다. 이상치 한 개가 다리를
+               놓아 무리가 통째로 붙는 사슬 현상이 없다.
+    average  — 무리 간 평균 거리 기준. complete 보다 관대하다.
+    Lance-Williams 갱신으로 O(n²) 메모리, 현장 규모(프레임당 수십 개)에 충분하다.
+    """
+    n = len(vecs)
+    if n == 1:
+        return [0]
+    if linkage == "single":
+        return _uf_group(vecs, scale, bw, tau)
+    Z = np.stack(vecs) / scale * bw
+    D = np.linalg.norm(Z[:, None] - Z[None], axis=2)
+    np.fill_diagonal(D, np.inf)
+    members = [[i] for i in range(n)]
+    alive = list(range(n))
+    while len(alive) > 1:
+        sub = D[np.ix_(alive, alive)]
+        k = int(np.argmin(sub))
+        ia, ib = divmod(k, len(alive))
+        if sub[ia, ib] >= tau:
+            break
+        a, b = alive[ia], alive[ib]
+        na, nb = len(members[a]), len(members[b])
+        for c in alive:
+            if c in (a, b):
+                continue
+            if linkage == "average":
+                d = (na * D[a, c] + nb * D[b, c]) / (na + nb)
+            else:                                   # complete
+                d = max(D[a, c], D[b, c])
+            D[a, c] = D[c, a] = d
+        members[a] = members[a] + members[b]
+        alive.remove(b)
+    out = [0] * n
+    for gid, a in enumerate(alive):
+        for i in members[a]:
+            out[i] = gid
+    return out
 
 
 def _scale_bw(size_scale, cfg):
@@ -103,6 +154,24 @@ def _build_features(masks, sizes_mm, geoms, color_bgr, intrinsics, cfg):
     geoms = geoms if geoms is not None else [None] * n
     sizes_mm = sizes_mm if sizes_mm is not None else [None] * n
 
+    # ── 프레임 기준 색 정규화 ────────────────────────────────────────────────
+    # 조명·노출이 바뀌면 Lab 중앙값이 통째로 이동해, **다른 시점에 등록한 정답 뱅크**와의
+    # 거리가 커져 '기타'로 이탈한다(2026-08-12 실측: 대비 ×1.5 에서 유지율 18.5%).
+    # 프레임 전체 통계로 각 객체 색을 상대화하면 전역 변화가 상쇄된다.
+    #   "median" — 중앙값만 뺀다. 조명 오프셋(밝기 이동)에 대응.
+    #   "robust" — 중앙값을 빼고 MAD 로 나눈다. **대비(곱셈) 변화까지** 대응.
+    # 프레임 안에서만 묶는 비지도 경로는 객체 간 차이만 쓰므로 원래 오프셋에 불변이고,
+    # 이 정규화가 실제로 이득을 주는 곳은 프로토타입(정답) 배정 경로다.
+    # ⚠️ 특징 기저가 바뀌므로 **기존 정답 뱅크는 무효** — '정답 비우기' 후 재등록 필요.
+    _norm = getattr(cfg, "CLUSTER_COLOR_NORM", "none")
+    _c_med = _c_spr = None
+    if _norm in ("median", "robust"):
+        _flat = lab.reshape(-1, 3).astype(np.float32)
+        _c_med = np.median(_flat, axis=0)
+        if _norm == "robust":
+            # MAD×1.4826 = 정규분포에서 표준편차와 같은 스케일. 0 나눗셈 방지.
+            _c_spr = np.maximum(np.median(np.abs(_flat - _c_med), axis=0) * 1.4826, 1e-3)
+
     raw = {}
     def _raw_maps():
         if not raw:
@@ -124,6 +193,12 @@ def _build_features(masks, sizes_mm, geoms, color_bgr, intrinsics, cfg):
             if int(ms.sum()) < 4:
                 continue
         col = np.median(lab[ms], axis=0).astype(float)
+        if _c_med is not None:
+            col = col - _c_med
+            if _c_spr is not None:
+                # MAD 단위 → 원래 Lab 과 비슷한 눈금으로 되돌린다. 그래야 CLUSTER_TAU /
+                # CLUSTER_MATCH_TAU 의 의미가 정규화 전후로 유지된다.
+                col = col / _c_spr * cfg.CLUSTER_COLOR_NORM_SPREAD
         col[0] *= cfg.CLUSTER_L_WEIGHT
         # 질감: 워프 패치 우선(풀해상도 소스 — 인쇄 디테일 보존, 비용은 128px 출력 기준),
         #       실패/기하없음 시 저해상 마스크에서 직접(폴백)
@@ -172,7 +247,8 @@ def cluster_by_appearance(masks, class_ids, color_bgr, sizes_mm=None,
     gid = 0
     for cid in sorted({int(class_ids[i]) for i in valid}):
         idxs = [i for i in valid if int(class_ids[i]) == cid]
-        local = _uf_group([feats[i] for i in idxs], scale, bw, tau)
+        local = _group_link([feats[i] for i in idxs], scale, bw, tau,
+                            getattr(cfg, 'CLUSTER_LINKAGE', 'complete'))
         name = config.CLASSES.get(cid, (str(cid),))[0]
         for a, i in enumerate(idxs):
             group_ids[i] = gid + local[a]
@@ -254,7 +330,8 @@ def assign_to_prototypes(masks, class_ids, color_bgr, sizes_mm, bank,
                     group_ids[i] = cid * 16 + 15
                     group_labels[i] = f"{name_cls}#기타"
         else:
-            local = _uf_group([feats[i] for i in idxs], scale, bw, cfg.CLUSTER_TAU)
+            local = _group_link([feats[i] for i in idxs], scale, bw, cfg.CLUSTER_TAU,
+                                getattr(cfg, 'CLUSTER_LINKAGE', 'complete'))
             for a, i in enumerate(idxs):
                 group_ids[i] = cid * 16 + local[a]
                 group_labels[i] = f"{name_cls}#{local[a]}"

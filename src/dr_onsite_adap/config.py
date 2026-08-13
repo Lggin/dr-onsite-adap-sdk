@@ -80,10 +80,30 @@ CLASSES = {
 CLUSTER_L_WEIGHT = float(os.environ.get("DEPAL_CLUSTER_L_WEIGHT", "0.35"))     # 밝기(L) 다운웨이트 → 조명차 완화
 # 동일 가중치 기본(색=질감=크기) — 크기 확 다른 케이스도 유지되면서, 크기 비슷·색 미묘차
 # 케이스가 색/질감으로 갈린다. 특정 축을 더 보려면 해당 env 를 올리면 됨.
+# 프레임 기준 색 정규화 — 전역 조명/대비 변화를 상쇄해 **정답 뱅크 배정**을 안정화한다.
+#   none   : 끔(기존 동작)
+#   median : 프레임 Lab 중앙값을 뺀다 → 밝기 오프셋 상쇄
+#   robust : 중앙값을 빼고 MAD 로 나눈다 → **대비(곱셈) 변화까지** 상쇄
+# ⚠️ 특징 기저가 바뀌므로 기존 정답 뱅크는 무효(재등록 필요).
+CLUSTER_COLOR_NORM = os.environ.get("DEPAL_CLUSTER_COLOR_NORM", "none")
+# robust 모드에서 MAD 단위를 Lab 눈금으로 되돌리는 기준 산포. TAU 의미 보존용.
+CLUSTER_COLOR_NORM_SPREAD = float(os.environ.get("DEPAL_CLUSTER_COLOR_NORM_SPREAD", "12.0"))
 CLUSTER_W_COLOR = float(os.environ.get("DEPAL_CLUSTER_W_COLOR", "1.0"))        # 색 가중
 CLUSTER_W_TEX = float(os.environ.get("DEPAL_CLUSTER_W_TEX", "0.5"))            # 질감 가중(노이즈 바닥 높아 0.5로 낮춤)
 CLUSTER_W_SIZE = float(os.environ.get("DEPAL_CLUSTER_W_SIZE", "1.0"))          # 크기 가중
 CLUSTER_TAU = float(os.environ.get("DEPAL_CLUSTER_TAU", "1.3"))                # 연결 거리 임계
+# 군집 연결 방식: single | complete | average.
+# single 은 사슬(chaining)에 취약하다 — 두 무리 사이 가까운 쌍이 **하나만** 생겨도 무리
+# 전체가 붙는다. 2026-08-13 실측(현장 40장 Carton 481개):
+#     single  TAU 1.3 → 26그룹(최대 309개=64%)   TAU 1.8 → **4그룹(최대 475개=99%, 붕괴)**
+#     complete TAU 1.3 → 141그룹(과분할)          TAU 4.0 → 19그룹(최대 85개=18%)
+# 즉 지금 기본값 TAU=1.3 은 붕괴 직전의 좁은 구간에 서 있고, complete 가 동작이 훨씬
+# 완만하다(TAU 3.0~6.0 에서 37→9 그룹으로 서서히 변함).
+# ⚠️ 그래도 **기본값은 single 유지**: TAU 1.3 은 single 기준으로 잡힌 값이라 연결 방식만
+#    바꾸면 과분할된다(141그룹). complete 로 가려면 TAU 재보정이 함께 필요한데, 그 값을
+#    정하려면 "무엇이 같은 박스인지"에 대한 정답이 있어야 한다(현재 없음 — 종류별 촬영으로
+#    수집 예정). 데이터가 모이면 TAU 를 같이 정하고 기본값을 complete 로 옮길 것.
+CLUSTER_LINKAGE = os.environ.get("DEPAL_CLUSTER_LINKAGE", "single")
 CLUSTER_SIZE_SCALE_MM = float(os.environ.get("DEPAL_CLUSTER_SIZE_SCALE_MM", "50"))  # 크기 구분 문턱(mm)
 CLUSTER_MIN_PX = int(os.environ.get("DEPAL_CLUSTER_MIN_PX", "60"))             # 이보다 작은 마스크는 그룹 제외
 CLUSTER_FEAT_SCALE = float(os.environ.get("DEPAL_CLUSTER_FEAT_SCALE", "0.5"))  # 특징 계산 해상도 배율(속도; 색/질감은 저해상 무해)
