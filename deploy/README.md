@@ -7,6 +7,7 @@ Thor 현장 PC의 운영 런처 스크립트 사본(버전관리/백업용). **T
 |---|---|
 | `demo_gui.sh` | 데모 GUI(`dr-onsite-gui`) — 실시간 검출 + 현장 학습 탭 |
 | `demo_capture.sh` | 키보드 앱(`dr-onsite-run`) — RGB-D 캡처('g') / 라벨링('t') |
+| `capture_type.sh` | **박스 종류별** 촬영(`dr-onsite-capture --view`) — 그룹화 정답 수집용. 한 프레임에 한 종류만 담아 폴더 이름이 곧 라벨이 되게 한다. depth 저장 on, 중복제거 off(조명만 바꾼 프레임이 걸러지면 안 되므로) |
 
 ## 현재 운영 설정 (2026-06-26)
 
