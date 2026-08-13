@@ -5,8 +5,13 @@
 액티브러닝 COCO 데이터셋(train·valid)에 **기존 데이터를 지우지 않고 추가만** 합니다.
 
 - 데이터셋 폴더 안의 sam_hard_*.json 중 아직 train 에 없는 것만 대상으로 합니다.
-- train 과 valid **양쪽에 똑같이** 추가합니다(이 파이프라인의 valid 는 별도 검증셋이
-  아니라 학습이 새 크롭을 보게 하려는 용도입니다).
+- **train 에만** 추가합니다. valid 는 건드리지 않습니다(2026-08-13 변경).
+  예전에는 양쪽에 똑같이 넣었는데, 그러면 valid 가 train 의 복사본이라 검증이 암기
+  점수가 되고, 실측이 라운드마다 늘어나므로 그 비중이 계속 커집니다. 지금은 역할을
+  나눠 각자 하나씩만 맡깁니다:
+    · valid = 리플레이(기존 학습 이미지)만 → **망각 검사**("옛 것을 잊었나")
+    · 적응 판정("새 물체를 배웠나") = 현장 held-out + `dr-onsite-gate`
+  예전 동작이 필요하면 --valid-too.
 - category_id 는 라벨러의 class_id 그대로(0=Pallet, 1=Carton, 2=Tote, 3=Shrink Wrap).
 - 쓰기 전에 train/valid COCO 를 타임스탬프 백업합니다.
 
@@ -134,6 +139,9 @@ def main():
                          "게이트 전용이며 학습에는 절대 들어가지 않는다")
     ap.add_argument("--holdout-dir", default=config.HOLDOUT_DATA_DIR,
                     help="held-out 평가셋 폴더(기본 DEPAL_HOLDOUT_DIR)")
+    ap.add_argument("--valid-too", action="store_true",
+                    help="실측을 valid 에도 넣는다(예전 동작). valid 가 train 복사본이 되어 "
+                         "검증이 암기 점수가 되므로 권장하지 않는다")
     args = ap.parse_args()
     data_dir = args.data_dir
     ensure_utf8_output()
@@ -226,19 +234,35 @@ def main():
         return added_i, added_a
 
     ti, ta = append_to(train, "train")
-    vi, va = append_to(valid, "valid")
     with open(train_p, "w") as f:
         json.dump(train, f)
-    with open(valid_p, "w") as f:
-        json.dump(valid, f)
+
+    # valid 에는 넣지 않는다(2026-08-13 변경). 예전에는 train·valid 양쪽에 똑같이 넣었는데,
+    # 그러면 valid 가 train 의 복사본이라 **암기 점수**가 되고, 라운드를 거듭할수록
+    # (실측이 단조 증가하므로) valid 에서 복사본 비중이 계속 커진다.
+    # 역할을 갈라 각자 하나씩만 맡긴다:
+    #   · valid  = 리플레이(기존 학습 이미지)만 → "옛 것을 잊었나" = 망각 검사
+    #   · 적응(새 물체를 배웠나) = 현장 held-out + `dr-onsite-gate`  ← --holdout 로 적재
+    # replay 단계는 AL valid 를 그대로 가져가므로, 여기서 비워두면 리플레이 100장만 남는다.
+    vi = va = 0
+    if args.valid_too:
+        vi, va = append_to(valid, "valid")
+        with open(valid_p, "w") as f:
+            json.dump(valid, f)
+        print("⚠️ --valid-too: 실측을 valid 에도 넣었습니다(예전 동작). "
+              "valid 가 train 복사본이 되어 검증이 암기 점수가 됩니다.")
     # test split 이 있으면(처음 생성 시 포함) 동일하게 채워 학습 로더가 안전하게 동작.
     if os.path.exists(test_p):
         test = load(test_p)
         append_to(test, "test")
         with open(test_p, "w") as f:
             json.dump(test, f)
-    print(f"✅ train +{ti}장/{ta}라벨 (총 {len(train['images'])}장), "
-          f"valid +{vi}장/{va}라벨 (총 {len(valid['images'])}장)")
+    print(f"✅ train +{ti}장/{ta}라벨 (총 {len(train['images'])}장)")
+    if args.valid_too:
+        print(f"   valid +{vi}장/{va}라벨 (총 {len(valid['images'])}장)")
+    else:
+        print(f"   valid 는 건드리지 않음(망각 검사 전용, 현재 {len(valid['images'])}장) — "
+              "적응 판정은 `dr-onsite-ingest --holdout` + `dr-onsite-gate`")
 
 
 if __name__ == "__main__":
