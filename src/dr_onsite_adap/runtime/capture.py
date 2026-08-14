@@ -25,6 +25,19 @@ from .. import config
 logger = logging.getLogger(__name__)
 
 
+def _fallback_up():
+    """IMU 가 up 을 안 줄 때 쓸 중력 벡터. 라이브 앱과 같은 우선순위:
+    측정값(up.json) > config.UP_DIR_CAMERA_FRAME. 둘 다 없으면 None."""
+    try:
+        from .app import _load_up
+        m = _load_up(config.UP_PATH)
+        if m:
+            return m
+    except Exception:
+        pass
+    return getattr(config, "UP_DIR_CAMERA_FRAME", None)
+
+
 class FieldCapture:
     """프레임을 받아 조건이 맞을 때만 파일로 떨어뜨린다(카메라 비소유)."""
 
@@ -68,6 +81,12 @@ class FieldCapture:
             dup += 1
         cv2.imwrite(path, color)
         if self.save_depth and depth is not None:
+            # ⚠️ up_dir 은 카메라가 IMU 로 주는데, IMU 를 끄면 None 이 온다. 그대로 저장하면
+            #    npz 의 up_dir 이 **빈 배열**이 되어 나중에 기하(윗면·물리크기) 계산이 통째로
+            #    실패한다 — 2026-08-14 종류별 촬영 48장이 전부 이 상태였고 물리 크기 확보가
+            #    0% 였다. 라이브 앱과 같은 폴백(IMU > up.json 측정값 > config UP_DIR)을 쓴다.
+            if up_dir is None or np.asarray(up_dir).size != 3:
+                up_dir = _fallback_up()
             np.savez_compressed(
                 os.path.splitext(path)[0] + ".npz",
                 depth=np.asarray(depth, dtype=np.float32),
