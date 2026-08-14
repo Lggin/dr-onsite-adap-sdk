@@ -218,15 +218,30 @@ def _view_loop(camera, cap, args, who=""):
                 next_t = 0.0
                 print(f"📷 자동 촬영 {'ON' if auto else 'OFF'} ({args.interval}초 간격)", flush=True)
             elif key == ord("r"):
-                # 드래그로 영역 선택. 항상 **원본 프레임** 위에서 고른다(이미 ROI 가 걸린
-                # 화면에서 고르면 좌표가 중첩돼 원본 기준이 아니게 된다).
-                sel = cv2.selectROI(win, color_f, showCrosshair=False, fromCenter=False)
-                if sel and sel[2] > 0 and sel[3] > 0:
+                # 드래그로 영역 선택. 두 가지를 지킨다:
+                #  ① **별도 창**에서 고른다 — 촬영 창 이름을 그대로 넘기면 selectROI 가 그
+                #     창을 가져가 버려서, 선택 후 imshow 가 죽은 창을 참조해 앱이 종료된다.
+                #  ② 항상 **원본 프레임**(ROI 적용 전) 위에서 고른다 — 이미 크롭된 화면에서
+                #     고르면 좌표가 중첩돼 원본 기준이 아니게 된다.
+                sel_win = "ROI select  (drag, ENTER=ok, ESC=clear)"
+                try:
+                    sel = cv2.selectROI(sel_win, color_f, showCrosshair=False,
+                                        fromCenter=False)
+                except Exception as e:            # 촬영 세션 전체를 잃지 않도록
+                    print(f"ROI 선택 실패({type(e).__name__}: {e}) — 촬영은 계속합니다")
+                    sel = None
+                try:
+                    cv2.destroyWindow(sel_win)
+                except Exception:
+                    pass
+                if sel is not None and sel[2] > 0 and sel[3] > 0:
                     roi = tuple(int(v) for v in sel)
                     _save_roi(config.ROI_PATH, roi)
                     print(f"ROI 지정됨: {roi} → {config.ROI_PATH}")
-                else:
-                    print("ROI 취소(선택 없음)")
+                elif sel is not None:
+                    roi = None
+                    _save_roi(config.ROI_PATH, None)
+                    print("ROI 해제 (전체 화면)")
             elif key == ord("c"):
                 roi = None
                 _save_roi(config.ROI_PATH, None)
