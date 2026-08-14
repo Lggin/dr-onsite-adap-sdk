@@ -115,6 +115,9 @@ def main():
     ap.add_argument("--list-cameras", action="store_true", help="연결된 카메라 시리얼만 출력")
     ap.add_argument("--view", action="store_true",
                     help="창을 띄워 보면서 원할 때만 촬영(스페이스/p=1장, a=자동 토글, q=종료)")
+    ap.add_argument("--roi", action="store_true",
+                    help="ROI 사용(--view 전용). roi.json 을 읽어 적용하고 'r' 로 재설정, "
+                         "'c' 로 해제. color/depth 크롭 + intrinsics 주점 보정까지 한다")
     args = ap.parse_args()
     ensure_utf8_output()
     setup_cli_logging()
@@ -170,9 +173,20 @@ def _view_loop(camera, cap, args, who=""):
 
     검출은 하지 않는다(모델 미로드). 목적은 "다른 각도를 눈으로 보면서 원하는 순간에
     고른 카메라로 촬영"이다.
+
+    ROI('r')는 라이브 앱과 **같은 규약**을 쓴다(app._apply_roi/_load_roi/_save_roi 재사용):
+    color/depth 를 크롭하고 intrinsics 주점(cx,cy)을 크롭 원점만큼 이동시킨다. 이 보정이
+    없으면 저장된 depth 로 물리 크기(mm)를 계산할 때 값이 틀어진다.
     """
-    win = f"현장 촬영 {who}(space/p=1장, a=자동, q=종료)"
+    from .app import _apply_roi, _load_roi, _save_roi
+
+    win = f"현장 촬영 {who}(space/p=1장, a=자동, r=ROI, c=ROI해제, q=종료)"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+    roi = _load_roi(config.ROI_PATH) if args.roi else None
+    if roi:
+        print(f"ROI: {roi} (roi.json 에서 로드) — 'r' 재설정 / 'c' 해제")
+    elif args.roi:
+        print("ROI: 없음(전체 프레임) — 'r' 로 지정")
     auto = False
     next_t = 0.0
     try:
@@ -180,14 +194,17 @@ def _view_loop(camera, cap, args, who=""):
             pack = camera.read()
             if pack is None:
                 continue
-            color, depth, intr, up = (list(pack) + [None] * 4)[:4]
+            color_f, depth_f, intr_f, up = (list(pack) + [None] * 4)[:4]
+            # ROI 는 **저장 직전**에 적용한다 — 저장물이 곧 학습/평가 입력이므로.
+            color, depth, intr = _apply_roi(color_f, depth_f, intr_f, roi)
             now = time.time()
             if auto and now >= next_t:
                 next_t = now + args.interval
                 cap.save(color, depth, intr, up)
             view = color.copy()
             txt = (f"{who}촬영 {cap.n_saved}장  (중복 건너뜀 {cap.n_skipped})"
-                   f"{'  [자동 ON]' if auto else ''}")
+                   f"{'  [자동 ON]' if auto else ''}"
+                   f"{'  ROI ' + str(roi) if roi else ''}")
             cv2.rectangle(view, (0, 0), (view.shape[1], 34), (0, 0, 0), -1)
             cv2.putText(view, txt, (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                         (0, 255, 0) if auto else (255, 255, 255), 2)
@@ -200,6 +217,20 @@ def _view_loop(camera, cap, args, who=""):
                 auto = not auto
                 next_t = 0.0
                 print(f"📷 자동 촬영 {'ON' if auto else 'OFF'} ({args.interval}초 간격)", flush=True)
+            elif key == ord("r"):
+                # 드래그로 영역 선택. 항상 **원본 프레임** 위에서 고른다(이미 ROI 가 걸린
+                # 화면에서 고르면 좌표가 중첩돼 원본 기준이 아니게 된다).
+                sel = cv2.selectROI(win, color_f, showCrosshair=False, fromCenter=False)
+                if sel and sel[2] > 0 and sel[3] > 0:
+                    roi = tuple(int(v) for v in sel)
+                    _save_roi(config.ROI_PATH, roi)
+                    print(f"ROI 지정됨: {roi} → {config.ROI_PATH}")
+                else:
+                    print("ROI 취소(선택 없음)")
+            elif key == ord("c"):
+                roi = None
+                _save_roi(config.ROI_PATH, None)
+                print("ROI 해제 — 전체 프레임으로 촬영합니다")
             elif key in (ord("q"), 27):
                 break
             if args.max and cap.n_saved >= args.max:

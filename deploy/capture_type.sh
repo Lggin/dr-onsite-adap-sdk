@@ -27,8 +27,16 @@ set -euo pipefail
 
 TYPE="${1:-}"
 MODE="${2:-stack}"
+
+# 카메라 목록만 보고 싶을 때
+if [ "$TYPE" = "cams" ] || [ "$TYPE" = "--list-cameras" ]; then
+  exec ~/ganginlee/AL/lee4/ganginenv/bin/dr-onsite-capture --list-cameras
+fi
+
 if [ -z "$TYPE" ]; then
   echo "사용법: bash ~/capture_type.sh <종류이름> [single]"
+  echo "        bash ~/capture_type.sh cams          # 연결된 카메라 시리얼 보기"
+  echo "        CAM=<시리얼> bash ~/capture_type.sh <종류이름>   # 카메라 지정"
   echo "  이미 찍은 종류:"
   for d in "$HOME/box_types"/*/; do
     [ -d "$d" ] || continue
@@ -51,12 +59,17 @@ DEPAL_CAPTURE_DEPTH=1
 # 중복 제거는 끈다 — 같은 장면을 조명만 바꿔 찍는 것이 목적이므로, 화면이 비슷하다고
 # 걸러버리면 정작 원하는 조명 변화 프레임이 버려진다.
 DEPAL_CAPTURE_MIN_DIFF=0
-# 카메라 (demo_gui.sh 와 동일 설정)
+# 카메라 — 기본은 demo_gui.sh 와 같은 카메라. 바꾸려면 CAM 환경변수에 시리얼을 준다.
+#   bash ~/capture_type.sh cams            # 연결된 시리얼 확인
+#   CAM=ABC123 bash ~/capture_type.sh pacific
 DEPAL_CAMERA_BACKEND=orbbec
-DEPAL_CAMERA_SERIAL=CL2Z1650107
+DEPAL_CAMERA_SERIAL="${CAM:-CL2Z1650107}"
 DEPAL_DEPTH_MODE=320x288
 DEPAL_USE_IMU=0
 DEPAL_UP_PATH=$HOME/up.json
+# ROI 는 종류별로 다를 수 있으니 이 촬영 전용 파일에 저장한다(라이브 앱의 roi.json 을
+# 덮어써서 운영 설정이 바뀌는 사고를 막는다).
+DEPAL_ROI_PATH=$HOME/box_types/roi_capture.json
 set +a
 
 echo "════════════════════════════════════════════════════════"
@@ -72,7 +85,9 @@ fi
 echo " ▶ 조명을 바꿔가며 찍어주세요 (이게 이 데이터의 핵심)"
 echo " ▶ 한 프레임에 다른 종류가 보이면 안 됩니다"
 echo "────────────────────────────────────────────────────────"
-echo " 스페이스/p = 1장   a = 자동촬영 토글   q = 종료"
+echo " 카메라: $DEPAL_CAMERA_SERIAL   (바꾸려면 CAM=<시리얼>, 목록은 'cams')"
+echo " 스페이스/p = 1장   a = 자동촬영   r = ROI 지정   c = ROI 해제   q = 종료"
 echo "════════════════════════════════════════════════════════"
 
-exec ~/ganginlee/AL/lee4/ganginenv/bin/dr-onsite-capture --view --depth --out "$OUT" "${@:3}"
+exec ~/ganginlee/AL/lee4/ganginenv/bin/dr-onsite-capture \
+     --view --depth --roi --out "$OUT" --serial "$DEPAL_CAMERA_SERIAL" "${@:3}"
