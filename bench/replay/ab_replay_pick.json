@@ -1,0 +1,43 @@
+{
+  "_base_v2": {
+    "adapt": 0.013198094595773889,
+    "regress": 0.9657175771620338
+  },
+  "_ref_k200_2026-08-03": {
+    "k_train": 200,
+    "adapt": 0.3463092636954623,
+    "regress": 0.9603079144407615,
+    "adapt_gain": 0.3331111690996884,
+    "regress_delta": -0.005409662721272301,
+    "minutes": 33.8
+  },
+  "_ref_k400_2026-08-03": {
+    "targets": "all-linear",
+    "r": 8,
+    "adapt": 0.34228534338691663,
+    "regress": 0.963961085748211,
+    "adapt_gain": 0.32908724879114276,
+    "regress_delta": -0.001756491413822725,
+    "recovered": true,
+    "k_train": 400,
+    "reused": true
+  },
+  "A_k200_strat": {
+    "pick": "strat",
+    "k_train": 200,
+    "adapt": 0.3391137515909974,
+    "regress": 0.9611838091453637,
+    "adapt_gain": 0.3259156569952235,
+    "regress_delta": -0.004533768016670048,
+    "minutes": 25.3
+  },
+  "B_k200_curated": {
+    "pick": "curated",
+    "k_train": 200,
+    "adapt": 0.33202148721661606,
+    "regress": 0.9590848212688716,
+    "adapt_gain": 0.3188233926208422,
+    "regress_delta": -0.0066327558931621455,
+    "minutes": 25.2
+  }
+}
