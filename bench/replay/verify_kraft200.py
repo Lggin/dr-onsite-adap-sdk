@@ -94,6 +94,41 @@ print(f"\n→ 기존 400 대비 크래프트 거리 중앙값 {do:.2f} → {dn:.
       f"({(dn-do)/do*100:+.0f}%)")
 
 print("\n" + "=" * 74)
+print("2-b. valid 두 층 — 회귀를 한 숫자로 뭉치지 않기 위해")
+print("=" * 74)
+sl_path = os.path.join(NEW, 'valid_slices.json')
+if os.path.exists(sl_path):
+    sl = json.load(open(sl_path))
+    vdist = SC['valid']['dist']
+    vc = json.load(open(os.path.join(NEW, 'valid', '_annotations.coco.json')))
+    vcn = {c['id']: c['name'] for c in vc['categories']}
+    vid2n = {im['id']: im['file_name'] for im in vc['images']}
+    vinst = defaultdict(Counter)
+    for a in vc['annotations']:
+        vinst[vid2n[a['image_id']]][vcn[a['category_id']]] += 1
+    for layer in ('kraft', 'control'):
+        fs = sl[layer]
+        d = [vdist[f] for f in fs if f in vdist and np.isfinite(vdist[f])]
+        inst = Counter()
+        for f in fs:
+            inst.update(vinst[f])
+        print(f"   {layer:<9}{len(fs):>3}장  크래프트 거리 중앙 "
+              f"{np.median(d) if d else float('nan'):>5.2f}  "
+              f"Carton {inst['Carton']:>5,}  "
+              + ' '.join(f"{c[:6]} {inst[c]}" for c in
+                         ('Pallet', 'Tote', 'Shrink Wrap', 'Slip Sheet')))
+    both = set(sl['kraft']) & set(sl['control'])
+    miss = names['valid'] - set(sl['kraft']) - set(sl['control'])
+    print(f"   두 층 겹침 {len(both)} · 어느 층도 아닌 것 {len(miss)}"
+          f" {'✅' if not both and not miss else '❌'}")
+    if both or miss:
+        ok = False
+    print("   → control 층 하락은 예상된 것이나(궤도렌더 등 버린 영역), "
+          "크기는 알아야 한다. 두 층을 따로 채점할 것")
+else:
+    print("   valid_slices.json 없음 — 이 셋은 두 층 구조가 아니다")
+
+print("\n" + "=" * 74)
 print("3. 부작용 — 클래스 보존과 출처 쏠림")
 print("=" * 74)
 
