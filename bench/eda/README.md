@@ -3,8 +3,8 @@
 "우리가 학습에 쓰는 데이터가 실제로 어떻게 생겼나"를 재는 스크립트 모음.
 2026-08-18 표본(Carton 6,000) 으로 시작해 08-21 **전수 377,914 객체**로 확장했다.
 
-**팀 공유 문서**: `~/공유_데이터셋EDA_및_그룹화성능_20260821.{md,html}`
-**인터랙티브 3D**: `~/데이터셋_3D산점도.html`
+**팀 공유 문서**: `~/공유_데이터셋EDA_및_그룹화성능_20260821.{md,html}` (Carton 전용)
+**인터랙티브 3D**: `~/Carton_분포_3D.html` — **점을 클릭하면 그 객체 크롭이 뜬다**
 
 ---
 
@@ -16,13 +16,44 @@
 | 클래스 불균형 | **223:1** (Carton 339,844 / Slip Sheet 1,533). 원인은 이미지 수가 아니라 **객체 밀도** |
 | 클래스 분리 가능성 | 14차원 색·질감·크기 + 1-NN 5겹 CV **92.2%** (무작위 20%) |
 | 가장 강한 축 | `size_short` F=5,547 → `size_long` 4,118 → `solidity` 2,067. **크기가 압도적** |
-| 도메인 간극 | 같은 도메인 98.5% → **합성→실촬 44.8%**. Carton 만 놓고 도메인을 맞히면 **99.6%** |
+| 도메인 간극 | 같은 도메인 98.5% → **합성→실촬 44.8%** ⚠️ 중복 등록을 걷지 않은 수다(함정 0). Carton 기준 교정값은 아래 표 |
 | 학습 공백 | Slip Sheet 절차생성 합성 **0**. Shrink Wrap 합성 8,266은 **전부 단품 렌더**(회색 배경, 팔레트 없음) |
 | Carton 내부 구조 | 뚜렷한 최적 k 없음(실루엣 0.16~0.20) = 저수준 통계로는 품목이 **연속적** |
 
 ---
 
-## 함정 두 개 (다시 밟지 않기)
+## Carton 전용 결과 (2026-08-21, 현재 관심사)
+
+| | 결과 |
+|---|---|
+| Carton | 341,116 → **중복 등록 제거 336,952** |
+| **현장(Thor) Carton** | 2,950 으로 세어지지만 **실제 59개 = 0.02%** |
+| 가장 큰 출처 | 합성 궤도렌더 `tm_*` **53.4%** — 그런데 현장과 가장 다르다 |
+| 축별 간극(코헨 d) | L **2.00** · size_short **1.94** · size_long **1.77** · tex_hp **1.68** |
+| 출처 판별 | 합성 vs 현장 **92.4%**(프레임 분할, n=118) / 합성 vs 외부 95.8% |
+| 현장 8종 위치 | blue_printed 백분위 **99**(거의 밖) ↔ 크래프트 계열 14~36(한복판) |
+| Carton 내부 구조 | 최적 k 없음(실루엣 0.14~0.21) = 저수준 통계로는 품목이 연속적 |
+
+궤도렌더는 **빈 회색 배경에 박스 기둥 하나**이고 표면이 **무작위 사진 질감**이다.
+카메라가 멀어 짧은 변 중앙이 37px(현장 125px), 밝기가 L 25~200 으로 극단까지 퍼진다.
+"합성이 질감을 못 만든다"는 기존 판단과 반대로 **질감이 과하다**(tex_hp 0.1 vs 현장 0.0).
+
+---
+
+## 함정 세 개 (다시 밟지 않기)
+
+### 0. 현장 라벨이 50배로 세어진다 ★
+
+`final_dataset_ultimate` 는 **현장 실촬 40장을 COCO `images` 에 각각 50번 등록**한다
+(2,000 항목 = 40 고유). 같은 주석이 50번 딸려 오므로 라벨 수가 50배가 된다.
+
+처음 "합성 vs 현장 판별 **99.7%**" 를 얻었는데 같은 객체의 복제본이 학습·시험 양쪽에
+들어간 **누수**였다. 프레임 단위로 갈라 다시 재니 **92.4%** 다.
+
+→ 분석·평가에서는 항상 `origins.dedup_mask(meta, feats)` 로 걷어낸다.
+COCO 를 직접 읽을 때는 `(파일명, bbox)` 로 중복을 제거한다.
+복제 자체는 의도된 것일 수 있다(희소 데이터 가중) — **분석할 때** 걷어내는 것이 핵심이다.
+
 
 ### 1. `render_*` 출처 오판정
 
@@ -47,17 +78,30 @@
 ```bash
 export S=~/eda_work            # 중간 산출물(.pkl) 저장 위치
 mkdir -p $S
-cp <운영가중치>.pth $S/continual_master_operational.pth   # box_detect 계열이 쓴다
 
-python3 bench/eda/eda_datasets.py    # ① 데이터셋 12개 계보·중복·심볼릭링크 실사
-python3 bench/eda/extract_all.py     # ② 전수 특징 추출 → allfeat_train.pkl (약 19분)
-python3 bench/eda/eda_more.py        # ③ 클래스 밀도·크기·valid split 점검
-python3 bench/eda/scatter_stats.py   # ④ 분리 가능성·축별 F·도메인 간극·현장 위치
-python3 bench/eda/gap_check.py       # ⑤ 도메인 간극 검증(구성 왜곡 제거)
-python3 bench/eda/scatter3d.py       # ⑥ 인터랙티브 3D HTML
-python3 bench/eda/share_figs.py      # ⑦ 발표용 정적 4패널 PNG
-python3 bench/eda/md2html.py <md> <png...>   # ⑧ 컨플루언스용 단일 HTML
+# 공통 — 전수 특징 (한 번만)
+python3 bench/eda/extract_all.py         # 전수 특징 → allfeat_train.pkl (약 19분)
+
+# Carton 전용 (현재 관심사)
+python3 bench/eda/carton_crops.py        # 표본 + 크롭 썸네일 → carton_sample.pkl
+python3 bench/eda/carton_stats.py        # 수치 + 4패널 PNG
+python3 bench/eda/carton_sources_fig.py  # 출처별 대표 프레임·크롭 비교 PNG
+python3 bench/eda/carton_scatter3d.py    # 인터랙티브 3D (클릭 → 객체)
+
+# 전 클래스 (지난 분석, 참고용)
+python3 bench/eda/eda_datasets.py        # 데이터셋 12개 계보·중복·심볼릭링크 실사
+python3 bench/eda/eda_more.py            # 클래스 밀도·크기·valid split 점검
+python3 bench/eda/scatter_stats.py       # 분리 가능성·축별 F·도메인 간극
+python3 bench/eda/gap_check.py           # 도메인 간극 검증(구성 왜곡 제거)
+python3 bench/eda/scatter3d.py           # 전 클래스 3D
+python3 bench/eda/share_figs.py          # 전 클래스 4패널 PNG
+
+python3 bench/eda/md2html.py <md> <png...>   # 컨플루언스용 단일 HTML
 ```
+
+⚠️ `carton_*` 계열은 **중복 등록을 걷어낸다**. `scatter_stats.py`/`gap_check.py`/
+`scatter3d.py`/`share_figs.py` 는 전 클래스 분석 시절 것이라 **걷어내지 않는다** —
+그쪽 현장 관련 수치는 부풀려져 있다(함정 0 참조).
 
 `extract_all.py` 는 `bench/grouping/gridsearch_feat.py` 의 `f2_mask`/`f3_rich` 를 그대로
 쓴다 — 그룹화 실험과 **같은 특징 정의**를 유지하려는 것이다. 경로는 각 스크립트가
@@ -74,8 +118,12 @@ FiftyOne 뷰어는 객체 크롭을 **개별 샘플**로 만든다(원본 프레
 | 파일 | 내용 |
 |---|---|
 | `$S/allfeat_train.pkl` | 전수 특징 37MB — F2(5차원) / F3(14차원) / meta(클래스·출처·파일명·px) |
-| `~/데이터셋_3D산점도.html` | 인터랙티브 3D, 관점 5개, 표본 32,517 |
-| `~/eda_요약_4패널.png` | 출처×클래스 / 도메인 간극 / 축별 F / 현장 8종 위치 |
+| `$S/carton_sample.pkl` | Carton 표본 4,856개 — 특징 + 크롭 JPEG(평균 1.5KB) |
+| `~/Carton_분포_3D.html` | **Carton 전용 3D · 클릭하면 객체가 보인다**, 관점 4개 |
+| `~/carton_eda_4패널.png` | 출처 구성 / 밝기 분포 / 축별 간극 / 현장 8종 위치 |
+| `~/carton_출처비교.png` | 출처별 대표 프레임(마스크 외곽선) + 크롭·밝기 |
+| `~/데이터셋_3D산점도.html` | (지난) 전 클래스 3D, 관점 5개 |
+| `~/eda_요약_4패널.png` | (지난) 전 클래스 4패널 |
 
 ---
 
@@ -85,7 +133,9 @@ FiftyOne 뷰어는 객체 크롭을 **개별 샘플**로 만든다(원본 프레
   현장 데이터를 겹칠 때는 반드시 `size_mm=None` 으로 다시 계산해 좌표계를 맞춰야 한다
 - **운용 그룹화와 다른 특징 공간이다.** 운용은 윗면 3D 워프 + CNN 임베딩이다.
   여기서 보이는 구조를 그룹화 성능으로 읽으면 안 된다
-- **PCA 3축이 55%밖에 못 잡는다.** 14축이 상당히 독립적이라는 뜻이므로 3D 그림은
-  구조의 요약일 뿐이다
-- **도메인 간극 99.6% 는 저수준 통계 기준**이다. RFDETR 이 보는 표현이 아니므로
+- **PCA 3축이 절반 남짓만 설명한다** (전 클래스 55% / Carton 61%). 14축이 상당히
+  독립적이라는 뜻이므로 3D 그림은 구조의 요약일 뿐이다
+- **도메인 판별 정확도는 저수준 통계 기준**이다. RFDETR 이 보는 표현이 아니므로
   "검출 성능 간극"으로 옮겨 읽으면 안 된다
+- **현장 Carton 이 59개뿐이다.** 합성·현장 비교는 어느 지표든 이 표본 위에 서 있다.
+  코헨 d 나 분포 그림처럼 작은 표본에서 덜 무너지는 지표를 우선한다

@@ -6,6 +6,10 @@
 import base64, os, re, sys
 import markdown
 
+# 그림을 어느 소제목 **앞**에 넣을지. 없으면 문서 끝.
+FIG_AT = {'carton_eda_4패널.png': 'A-1', 'carton_출처비교.png': 'A-3',
+          'eda_요약_4패널.png': 'A-1'}
+
 src = sys.argv[1]
 figs = sys.argv[2:]
 out = os.path.splitext(src)[0] + '.html'
@@ -18,12 +22,13 @@ for f in figs:
     b64 = base64.b64encode(open(f, 'rb').read()).decode()
     tag = (f'<figure><img src="data:image/png;base64,{b64}" alt="{os.path.basename(f)}">'
            f'<figcaption>{os.path.basename(f)}</figcaption></figure>')
-    # Part A 첫 소제목 앞에 넣는다. toc 확장이 h2 에 id 를 붙이므로 정규식으로 찾는다.
-    m = re.search(r'<h2[^>]*>\s*A-1\.', html)
+    # 그림 파일명에 대응하는 소제목 앞에 넣는다(toc 확장이 h2 에 id 를 붙이므로 정규식).
+    where = FIG_AT.get(os.path.basename(f))
+    m = re.search(r'<h2[^>]*>\s*' + re.escape(where) + r'\.', html) if where else None
     if m:
         html = html[:m.start()] + tag + html[m.start():]
     else:
-        print("⚠️ 삽입 위치(A-1)를 못 찾아 문서 끝에 붙였다")
+        print(f"⚠️ {os.path.basename(f)} 삽입 위치를 못 찾아 문서 끝에 붙였다")
         html += tag
 
 CSS = """
