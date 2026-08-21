@@ -7,8 +7,10 @@ import base64, os, re, sys
 import markdown
 
 # 그림을 어느 소제목 **앞**에 넣을지. 없으면 문서 끝.
+# 그림 파일명 → 그 그림을 **앞에** 넣을 소제목의 시작 문구(h2/h3 모두 허용).
 FIG_AT = {'carton_eda_4패널.png': 'A-1', 'carton_출처비교.png': 'A-3',
-          'eda_요약_4패널.png': 'A-1'}
+          'eda_요약_4패널.png': 'A-1',
+          'replay_kraft200_표본비교.png': '무결성'}
 
 src = sys.argv[1]
 figs = sys.argv[2:]
@@ -24,7 +26,7 @@ for f in figs:
            f'<figcaption>{os.path.basename(f)}</figcaption></figure>')
     # 그림 파일명에 대응하는 소제목 앞에 넣는다(toc 확장이 h2 에 id 를 붙이므로 정규식).
     where = FIG_AT.get(os.path.basename(f))
-    m = re.search(r'<h2[^>]*>\s*' + re.escape(where) + r'\.', html) if where else None
+    m = (re.search(r'<h[23][^>]*>\s*' + re.escape(where), html) if where else None)
     if m:
         html = html[:m.start()] + tag + html[m.start():]
     else:
