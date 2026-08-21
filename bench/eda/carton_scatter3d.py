@@ -9,8 +9,12 @@ Carton 만 다룬다. 학습셋의 Carton 이 색·질감·크기 공간에서 �
   ③ 현장 8종    — 실제로 촬영한 8종(큰 점)이 학습셋 어디에 앉는가
   ④ 해석 가능 축 — PCA 대신 밝기·색조·크기 원축
 
-축(PCA)은 **Carton 전수 34만 개**로 학습하고 표본만 투영한다. 표본으로 축을 잡으면
-축 자체가 표본 추출에 흔들린다.
+축(PCA)은 **Carton 전수 33만 개**로 학습한다. 표본으로 축을 잡으면 축 자체가 표본
+추출에 흔들린다.
+
+**점은 전수를 다 그린다**(회색 배경층). 표본을 쓰는 것은 **크롭 때문**이다 —
+크롭 하나가 base64 로 약 2KB 이므로 33만 개면 670MB 가 되어 한 파일에 넣을 수 없다.
+그래서 색이 있고 클릭되는 점만 표본이고, 분포의 모양 자체는 전수로 본다.
 
 ⚠️ 특징은 bbox 크롭 + 마스크 기반이고 크기 축이 **픽셀**이다(전수에 depth 없음).
    현장 8종도 같은 규격으로 다시 계산해 좌표계를 맞춘다.
@@ -51,6 +55,17 @@ print(f"PC1~3 설명력 {ev[0]*100:.0f}/{ev[1]*100:.0f}/{ev[2]*100:.0f}% (합 {e
 for k in range(3):
     top = np.argsort(-np.abs(p3.components_[k]))[:5]
     print(f"  PC{k+1}: " + ', '.join(f"{AX[i]}{p3.components_[k][i]:+.2f}" for i in top))
+
+# ── 전수 좌표 (배경층) — 점은 전부 그린다 ───────────────────────────────
+# float32 로 낮춘다 — plotly 는 넘파이를 이진으로 직렬화하므로 dtype 이 곧 파일 크기다
+# (f8 → f4 로 절반). 소수 1자리면 화면상 차이가 없다.
+PALL = np.round(p3.transform(sc.transform(POP)), 1).astype(np.float32)
+iLp, iCp, iSp = AX.index('L'), AX.index('chroma'), AX.index('size_long')
+RALL = np.column_stack([np.round(POP[:, iLp]),
+                        np.round(POP[:, iCp], 1),
+                        np.round(np.log10(np.maximum(POP[:, iSp], 1)), 2)]
+                       ).astype(np.float32)
+print(f"배경층(전수) {len(PALL):,}점")
 
 # ── 표본 + 크롭 ──────────────────────────────────────────────────────────
 B = pickle.load(open(S + '/carton_sample.pkl', 'rb'))
@@ -121,7 +136,10 @@ traces, groups = [], {}
 
 
 def add(g, **kw):
-    groups.setdefault(g, []).append(len(traces))
+    """g 는 관점 이름 하나 또는 여러 개(리스트). 배경층처럼 공용 트레이스는 여러 관점에."""
+    i = len(traces)
+    for gg in ([g] if isinstance(g, str) else g):
+        groups.setdefault(gg, []).append(i)
     traces.append(go.Scatter3d(**kw))
 
 
@@ -132,6 +150,15 @@ def hov(i):
 
 HOV = [hov(i) for i in range(NS)]
 MK = dict(size=2.6, opacity=.72, line=dict(width=0))
+BG = dict(size=1.0, color='#b9bfc6', opacity=.16, line=dict(width=0))
+
+# 배경층: 전수 336,952점. 클릭·hover 없음(그럴 좌표만 있고 크롭이 없다)
+add(['g1', 'g2', 'g3'], x=PALL[:, 0], y=PALL[:, 1], z=PALL[:, 2], mode='markers',
+    name=f'전수 {len(PALL):,} (배경)', marker=dict(**BG), hoverinfo='skip',
+    showlegend=True, visible=True)
+add('g4', x=RALL[:, 0], y=RALL[:, 1], z=RALL[:, 2], mode='markers',
+    name=f'전수 {len(RALL):,} (배경)', marker=dict(**BG), hoverinfo='skip',
+    showlegend=True, visible=False)
 
 # ① 출처별 — 많은 것부터 그려 적은 것이 위로 오게
 for o in sorted(set(ORG), key=lambda x: -CNT.get(x, 0)):
@@ -151,10 +178,10 @@ for k in range(NK):
         name=f'C{k} ({len(w):,})', marker=dict(color=PAL[k], **MK),
         customdata=w.tolist(), text=[HOV[j] for j in w], hoverinfo='text', visible=False)
 
-# ③ 현장 8종 겹치기
+# ③ 현장 8종 겹치기 (배경은 위의 전수층이 담당)
 add('g3', x=P[:, 0], y=P[:, 1], z=P[:, 2], mode='markers',
-    name=f'학습셋 Carton ({NS:,})',
-    marker=dict(size=1.9, color='#c9cdd2', opacity=.3, line=dict(width=0)),
+    name=f'표본 {NS:,} (클릭 가능)',
+    marker=dict(size=2.0, color='#7f8b96', opacity=.5, line=dict(width=0)),
     customdata=list(range(NS)), text=HOV, hoverinfo='text', visible=False)
 if FB is not None:
     off = 0
@@ -215,10 +242,39 @@ META_JS = [[MET[i][0], int(MET[i][1]), int(MET[i][2]), str(ORG[i]), int(KC[i])]
            for i in range(NS)]
 FMETA_JS = [[str(FLAB[i]), '현장 촬영'] for i in range(len(FIMG))]
 
-pc_desc = '<br>'.join(
-    f"<b>PC{k+1}</b> ({ev[k]*100:.0f}%) = " +
-    ' '.join(f"{p3.components_[k][i]:+.2f}·{AX[i]}"
-             for i in np.argsort(-np.abs(p3.components_[k]))[:5])
+# ── 축 해설: 하중이 아니라 "해석 가능한 양과의 상관" 으로 이름을 붙인다 ──
+# 상위 하중 5개만 보고 이름을 붙이면 틀린다(PC1 의 최대 하중은 tex_lbp 지만
+# 실제로는 크기·채도와 더 강하게 붙어 있다).
+PPOP = p3.transform(sc.transform(POP))
+QUANT = {'밝기 L': POP[:, AX.index('L')],
+         '채도 chroma': POP[:, AX.index('chroma')],
+         '긴 변 px': POP[:, AX.index('size_long')],
+         '짧은 변 px': POP[:, AX.index('size_short')],
+         '무늬 tex_lbp': POP[:, AX.index('tex_lbp')],
+         '고주파 질감 tex_hp': POP[:, AX.index('tex_hp')],
+         '에지 tex_edge': POP[:, AX.index('tex_edge')],
+         '색 얼룩 L_iqr': POP[:, AX.index('L_iqr')]}
+CORR = {k: [float(np.corrcoef(PPOP[:, k], v)[0, 1]) for v in QUANT.values()]
+        for k in range(3)}
+QN = list(QUANT)
+PCNAME = ['크고 · 진하고 · 무늬 많은 ↔ 작고 · 흐리고 · 매끈한',
+          '고주파 질감 많고 색 옅은 ↔ 질감 매끈하고 색 진한  (크기와 무관)',
+          '밝고 · 크고 · 색 균일한 ↔ 어둡고 · 작고 · 색 얼룩진']
+PCNOTE = ['근접 촬영(외부) 과 원거리 렌더(궤도) 를 가르는 축',
+          '표면 무늬의 거칠기. 크기와 상관 0.02 로 독립이다',
+          '<b>현장이 가장 잘 갈리는 축</b> (합성 vs 현장 코헨 d = 2.20)']
+
+
+def corr_row(k):
+    order = sorted(range(len(QN)), key=lambda i: -abs(CORR[k][i]))[:5]
+    return ' · '.join(f"{QN[i]} <b>{CORR[k][i]:+.2f}</b>" for i in order)
+
+
+pc_desc = ''.join(
+    f"<div class=pcrow><span class=pcname>PC{k+1} <em>{ev[k]*100:.0f}%</em></span>"
+    f"<span class=pcbody><b>{PCNAME[k]}</b><br>"
+    f"<span class=pccorr>상관: {corr_row(k)}</span><br>"
+    f"<span class=pcnote>{PCNOTE[k]}</span></span></div>"
     for k in range(3))
 src_rows = '\n'.join(
     f"<tr><td>{o}</td><td class=n>{CNT[o]:,}</td>"
@@ -266,9 +322,19 @@ table{{border-collapse:collapse;width:100%;font-size:12.5px}}
 th,td{{padding:4px 7px;border-bottom:1px solid var(--line);text-align:left}}
 th{{font-size:10.5px;color:var(--mut);letter-spacing:.06em;text-transform:uppercase}}
 td.n{{text-align:right;font-family:ui-monospace,monospace;font-variant-numeric:tabular-nums}}
-.axis{{background:var(--raise);border-left:3px solid var(--dep);padding:9px 13px;
-font-size:12px;margin:14px 0;line-height:1.75;font-family:ui-monospace,monospace;
-overflow-x:auto;white-space:nowrap}}
+.axis{{background:var(--raise);border-left:3px solid var(--dep);padding:12px 15px;
+font-size:13px;margin:14px 0;line-height:1.7}}
+.axis > .t{{font-size:11px;font-family:ui-monospace,monospace;letter-spacing:.12em;
+text-transform:uppercase;color:var(--mut);display:block;margin-bottom:9px}}
+.pcrow{{display:flex;gap:14px;padding:7px 0;border-top:1px solid var(--line)}}
+.pcrow:first-of-type{{border-top:0}}
+.pcname{{flex:0 0 88px;font-family:ui-monospace,monospace;font-weight:700;
+color:var(--dep);font-size:13.5px}}
+.pcname em{{display:block;font-style:normal;font-weight:400;color:var(--mut);
+font-size:11.5px}}
+.pcbody{{flex:1;min-width:0}}
+.pccorr{{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--mut)}}
+.pcnote{{font-size:12px;color:var(--kraft)}}
 .warn{{background:var(--kraft-soft);border-left:3px solid var(--kraft);padding:11px 15px;
 font-size:13px;line-height:1.7;margin:14px 0}}
 .warn b{{color:var(--kraft)}}
@@ -277,15 +343,21 @@ font-size:13px;line-height:1.7;margin:14px 0}}
 
 <h1>Carton 분포 3D — 점을 클릭하면 그 객체가 보인다</h1>
 <p class=sub>
-학습셋의 <b>Carton {TOTAL:,}개</b>(중복 등록 제거 후) 중 <b>{NS:,}개</b>를 뽑아
-색·질감·크기 공간에 그렸다. 드래그로 회전, 스크롤로 확대, <b>점을 클릭하면 오른쪽에 그 박스가 뜬다</b>.
-범례를 클릭하면 그룹을 켜고 끌 수 있다.
+학습셋의 <b>Carton {TOTAL:,}개</b>(중복 등록 제거 후)를 색·질감·크기 공간에
+<b>전부</b> 그렸다 — 옅은 회색이 전수다. 그 위에 색이 있는 <b>{NS:,}개</b>는
+<b>클릭하면 오른쪽에 그 박스가 뜬다</b>(크롭을 파일에 담을 수 있는 만큼).
+드래그로 회전, 스크롤로 확대, 범례 클릭으로 그룹 켜고 끄기.
 </p>
 
 <div class=grid>
   <div>
     {body}
-    <div class=axis>{pc_desc}</div>
+    <div class=axis><span class=t>x · y · z 축이 뜻하는 것 (관점 ①②③)</span>
+      {pc_desc}
+      <div class=pcrow><span class=pcname>관점 ④</span><span class=pcbody>
+      PCA 를 쓰지 않고 <b>밝기 L · 채도 chroma · 크기 log10(긴 변 px)</b> 를 그대로
+      축으로 쓴다. 해석은 쉽지만 세 축이 서로 겹친다.</span></div>
+    </div>
     <p class=hint>
       ① 출처별 — 합성·외부·현장이 같은 영역을 덮는가 &nbsp;·&nbsp;
       ② 자동 군집 — 라벨 없이 나뉘는 덩어리 (k={NK}) &nbsp;·&nbsp;
@@ -317,10 +389,12 @@ font-size:13px;line-height:1.7;margin:14px 0}}
         <th class=n>비율</th></tr></thead><tbody>
         {src_rows}
       </tbody></table>
-      <p class=hint>비례로만 뽑으면 현장(Thor)이 0.02%라 점이 안 보이고, 균등으로 뽑으면
-        합성 18만의 실제 편중이 사라진다. √n 은 그 사이의 타협이다.
-        <b>현장 59개는 전부 넣었다</b> — 그게 학습셋에 있는 실제 현장 Carton 전부다
-        (2,950 으로 세어지지만 40장×50 복제).</p>
+      <p class=hint><b>점은 전수를 다 그린다.</b> 표본이 필요한 이유는 <b>크롭</b>이다 —
+        크롭 하나가 base64 로 약 2KB 이므로 33만 개면 670MB 가 되어 한 파일에 못 담는다.
+        좌표만이면 4.6MB 라서 전량이 가능하다.<br>
+        클릭용 표본은 출처별 √n 비례로 뽑았다. 비례로만 뽑으면 현장이 0.02%라 안 보이고,
+        균등이면 합성 18만의 실제 편중이 사라진다.
+        <b>현장 59개는 전부 넣었다</b> — 그게 학습셋의 실제 현장 Carton 전부다.</p>
     </div>
   </div>
 </div>
