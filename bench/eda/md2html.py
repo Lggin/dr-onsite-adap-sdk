@@ -8,9 +8,11 @@ import markdown
 
 # 그림을 어느 소제목 **앞**에 넣을지. 없으면 문서 끝.
 # 그림 파일명 → 그 그림을 **앞에** 넣을 소제목의 시작 문구(h2/h3 모두 허용).
-FIG_AT = {'carton_eda_4패널.png': 'A-1', 'carton_출처비교.png': 'A-3',
-          'eda_요약_4패널.png': 'A-1',
-          'replay_kraft200_표본비교.png': '무결성'}
+# 값이 여러 개면 순서대로 시도한다 — 같은 그림이 문서마다 다른 절에 들어가기 때문이다.
+FIG_AT = {'carton_eda_4패널.png': ['A-1', '2-2'],
+          'carton_출처비교.png': ['A-3', '2-3'],
+          'eda_요약_4패널.png': ['A-1'],
+          'replay_kraft200_표본비교.png': ['무결성', '설계 중 걸렸던']}
 
 src = sys.argv[1]
 figs = sys.argv[2:]
@@ -25,8 +27,11 @@ for f in figs:
     tag = (f'<figure><img src="data:image/png;base64,{b64}" alt="{os.path.basename(f)}">'
            f'<figcaption>{os.path.basename(f)}</figcaption></figure>')
     # 그림 파일명에 대응하는 소제목 앞에 넣는다(toc 확장이 h2 에 id 를 붙이므로 정규식).
-    where = FIG_AT.get(os.path.basename(f))
-    m = (re.search(r'<h[23][^>]*>\s*' + re.escape(where), html) if where else None)
+    m = None
+    for where in FIG_AT.get(os.path.basename(f), []):
+        m = re.search(r'<h[23][^>]*>\s*' + re.escape(where), html)
+        if m:
+            break
     if m:
         html = html[:m.start()] + tag + html[m.start():]
     else:
