@@ -1,0 +1,94 @@
+{
+  "_base_v2": {
+    "adapt": 0.013198094595773889,
+    "regress": 0.9657175771620338
+  },
+  "_ref_k400_strat": {
+    "targets": "all-linear",
+    "r": 8,
+    "adapt": 0.34228534338691663,
+    "regress": 0.963961085748211,
+    "adapt_gain": 0.32908724879114276,
+    "regress_delta": -0.001756491413822725,
+    "recovered": true,
+    "k_train": 400,
+    "reused": true
+  },
+  "_ref_k200_strat": {
+    "pick": "strat",
+    "k_train": 200,
+    "adapt": 0.3391137515909974,
+    "regress": 0.9611838091453637,
+    "adapt_gain": 0.3259156569952235,
+    "regress_delta": -0.004533768016670048,
+    "minutes": 25.3
+  },
+  "_ref_k200_curated": {
+    "pick": "curated",
+    "k_train": 200,
+    "adapt": 0.33202148721661606,
+    "regress": 0.9590848212688716,
+    "adapt_gain": 0.3188233926208422,
+    "regress_delta": -0.0066327558931621455,
+    "minutes": 25.2
+  },
+  "C_k200_kraft": {
+    "pick": "크래프트(보장 유지)",
+    "k_train": 200,
+    "train_labels": 4358,
+    "adapt": 0.3379427031858735,
+    "regress": 0.9555010740299646,
+    "adapt_gain": 0.3247446085900996,
+    "regress_delta": -0.010216503132069121,
+    "minutes": 27.4,
+    "regress_kraft": 0.9568176249159536,
+    "regress_kraft_delta": -0.005437785126060857,
+    "regress_cfar": 0.9611353248358224,
+    "regress_cfar_delta": -0.004015618238491281,
+    "regress_other": 0.9667302553932732,
+    "regress_other_delta": -0.021983112869756627
+  },
+  "D_k200_kraftlight": {
+    "pick": "크래프트(보장 완화)",
+    "k_train": 200,
+    "train_labels": 4879,
+    "adapt": 0.3554755763197873,
+    "regress": 0.96081168912349,
+    "adapt_gain": 0.34227748172401345,
+    "regress_delta": -0.004905888038543749,
+    "minutes": 35.4,
+    "regress_kraft": 0.9621334360304686,
+    "regress_kraft_delta": -0.00012197401154578902,
+    "regress_cfar": 0.9629869861819988,
+    "regress_cfar_delta": -0.0021639568923148556,
+    "regress_other": 0.9760078405430496,
+    "regress_other_delta": -0.012705527719980236
+  },
+  "_reg_split": {
+    "kraft_n": 176,
+    "cfar_n": 176,
+    "other_n": 1039,
+    "boundary": 1.061755281607684
+  },
+  "_base_split": {
+    "regress_kraft": 0.9622554100420144,
+    "regress_cfar": 0.9651509430743137,
+    "regress_other": 0.9887133682630298
+  },
+  "E_k200_strat_dedup": {
+    "pick": "무작위 층화 + 중복 제거",
+    "k_train": 200,
+    "train_labels": 2789,
+    "adapt": 0.32923667936243933,
+    "regress": 0.9618378518225044,
+    "adapt_gain": 0.31603858476666546,
+    "regress_delta": -0.003879725339529405,
+    "minutes": 23.6,
+    "regress_kraft": 0.9586807931418725,
+    "regress_kraft_delta": -0.003574616900141936,
+    "regress_cfar": 0.9613602487761258,
+    "regress_cfar_delta": -0.003790694298187902,
+    "regress_other": 0.984536089932256,
+    "regress_other_delta": -0.004177278330773748
+  }
+}
